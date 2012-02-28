@@ -16,6 +16,7 @@ TESTS = topology_test \
         config_test \
         tman_test \
         topo_msg_size_test \
+	tcp-test	\
 
 ifneq ($(ARCH),win32)
   TESTS += topology_test_th \
@@ -52,6 +53,9 @@ topology_test_th: LDFLAGS += -pthread
 chunk_encoding_test: chunk_encoding_test.o
 
 cb_test: cb_test.o
+
+tcp_test:
+	gcc $(CPPFLAGS) -o tcp_test tcp-test.c
 
 chunkidset_test: chunkidset_test.o chunkid_set_h.o
 
