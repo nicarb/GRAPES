@@ -98,6 +98,7 @@ void nodeid_free (struct nodeID *s)
          * descriptors */
         dict_delete(s->local.neighbors);
         close(s->local.fd);
+        free(s->local);
     }
     free(s);
 }
@@ -106,24 +107,26 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  const char *config)
 {
     nodeid_t *this;
-    struct tag *cfg_tags;
+    struct tag *cfg_tags = NULL;
     int e;
 
     this = create_node(IPaddr, port);
-    if (this == NULL) return NULL;
+    if (this == NULL) {
+        return NULL;
+    }
 
     if (config && (cfg_tags = config_parse(config))) {
         config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
                                  DEFAULT_BACKLOG);
-        free(cfg_tags);
-        fprintf(stderr, "Backlog change\n");
     }
-    fprintf(stderr, "Backlog value: %i\n", backlog);    // TODO: remove
 
-    /* TODO: change dictionary init function to accept directly the
-     *       cfg_tags instead of a string. Change also this part
-     *       accordingly. The best strategy here is make the dictionary
-     *       ignore a NULL `struct tag *` */
+    if ((this->local = malloc(sizeof(local_info_t))) == NULL) {
+        nodeid_free(this);
+        free(cfg_tags);
+        return NULL;
+    }
+    this->local.neighbors = dict_new(AF_INET, cfg_tags);
+    free(cfg_tags);
 
     if (tcp_serve(&this, backlog, &e) < 0) {
         fprintf(stderr, "net-helper: creating server errno %d: %s\n", e,
@@ -135,10 +138,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
     return this;
 }
 
-void bind_msg_type(uint8_t msgtype)
-{
-    /* Noy yet developed! */
-}
+void bind_msg_type(uint8_t msgtype){}
 
 /* 
  */
@@ -188,11 +188,72 @@ int recv_from_peer(const struct nodeID *local, struct nodeID **remote,
   return res;
 }
 
-int wait4data(const struct nodeID *n, struct timeval *tout,
-	      int *user_fds)
+struct select_helper {
+    fd_set readfds;
+    int max;
+};
+
+static
+int scan_fill_set (void *ctx, const struct sockaddr *addr, int fd)
 {
-  /* Noy yet developed! */
-  return -1;
+    struct select_helper *sh = (struct select_helper *) ctx;
+    FD_SET(fd, &sh->readfds);
+    if (fd > sh->max) {
+        sh->max = fd;
+    }
+    return 1;
+}
+
+/* Behaves in a way which is compatible with the `wait4data` function
+ * provided by the UDP version */
+int wait4data(const struct nodeID *n, struct timeval *tout,
+	          int *user_fds)
+{
+    dict_t neighbors = n->local->neighbors;
+    int res;
+    struct select_helper sh;
+    int res;
+
+    /* We start with the file neighbors descriptors */
+
+    FD_ZERO(&sh.readfds);
+    sh.max = -1;
+    dict_scan(neighbors, scan_fill_set, (void *)&sh);
+
+    res = select(sh.max, &sh.readfds, NULL, NULL, tout);
+    if (res < 0) {
+        return res;         // We had an error.
+    } else if (res > 0) {
+        return 1;           // Incoming data from neighbors;
+    }
+
+    if (user_fds == NULL) {
+        return 0;           // No incoming data and no user_fds to check
+    }
+
+    /* There may be some user file descriptors waiting. Starting again on
+     * user_fds */
+
+    FD_ZERO(&sh.readfds);
+    sh.max = -1;
+    for (i = 0; user_fds[i] != -1; i++) {
+        FD_SET(user_fds[i], &sh.readfds);
+        if (user_fds[i] > sh.max) {
+            sh.max = user_fds[i];
+        }
+    }
+    res = select(sh.max, &sh.readfds, NULL, NULL, tout);
+    if (res <= 0) {
+        return res;
+    }
+ 
+    for (i = 0; user_fds[i] != -1; i++) {
+        if (!FD_ISSET(user_fds[i], &fds)) {
+            user_fds[i] = -2;
+        }
+    }
+
+    return 2;
 }
 
 const char *node_addr(const struct nodeID *s)
@@ -214,7 +275,7 @@ struct nodeID *nodeid_undump(const uint8_t *b, int *len)
 }
 
 int nodeid_dump(uint8_t *b, const struct nodeID *s,
-		size_t max_write_size)
+		        size_t max_write_size)
 {
 }
 
@@ -258,7 +319,7 @@ static
 int tcp_serve (nodeID *sd, int backlog, int *e)
 {
     int fd;
-    assert(sd->local != NULL);
+    assert(sd->local != NULL);  // TODO: remove when it works.
 
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd == -1) {
