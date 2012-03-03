@@ -11,8 +11,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <stdio.h>
+#include <string.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
 #include "net_helper.h"
-#include "net_helper_all.h"
 #include "config.h"
 
 /* -- Internal functions ---------------------------------------------- */
@@ -28,7 +33,8 @@ static const unsigned DEFAULT_BACKLOG = 50;
 /* -- Interface exported symbols -------------------------------------- */
 
 struct nodeID {
-    sock_data_t data;
+    struct sockaddr_in addr;
+    int fd;
     struct {
         unsigned self : 1;
     } conf;
@@ -45,27 +51,39 @@ struct nodeID *nodeid_dup (struct nodeID *s)
     return ret;
 }
 
-/* @return 1 if the two nodeID are identical or 0 if they are not. */
-int nodeid_equal (const struct nodeID *s1, const struct nodeID *s2)
-{
-    return sock_data_equal(&s1->data, &s2->data);
-}
-
 /*
 * @return -1, 0 or 1, depending on the relation between  s1 and s2.
 */
 int nodeid_cmp (const struct nodeID *s1, const struct nodeID *s2)
 {
-    return sock_data_cmp(&s1->data, &s2->data);
+    return memcmp(&s1->addr, &s2->addr, sizeof(struct sockaddr_in));
 }
+
+
+/* @return 1 if the two nodeID are identical or 0 if they are not. */
+int nodeid_equal (const struct nodeID *s1, const struct nodeID *s2)
+{
+    return nodeid_cmp(&s1, &s2) == 0;
+}
+
 
 struct nodeID *create_node (const char *IPaddr, int port)
 {
     nodeid_t *ret = malloc(sizeof(nodeid_t));
-    if (sock_data_init(&ret->data, IPaddr, port) == 0) {
+
+    ret->addr.sin_family = AF_INET;
+    ret->addr.sin_port = htons(port);
+    ret->fd = -1;
+
+    if (IPaddr == NULL) {
+        ret->addr.sin_addr = INADDR_ANY;
+    }
+
+    if (inet_aton(IPaddr, &ret->addr.sin_addr) == 0) {
         free(ret);
         return NULL;
     }
+
     ret->conf.self = 0;
     return ret;
 }
@@ -74,7 +92,7 @@ void nodeid_free (struct nodeID *s)
 {
     int fd;
 
-    if ((fd = s->data.fd) == -1) {
+    if ((fd = s->fd) == -1) {
         close(fd);
     }
     free(s);
@@ -101,7 +119,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
     }
     fprintf(stderr, "Backlog value: %i\n", backlog);
 
-    if (tcp_serve(&this->data, backlog, &e) < 0) {
+    if (tcp_serve(&this, backlog, &e) < 0) {
         fprintf(stderr, "net-helper: creating server errno %d: %s\n", e,
                 strerror(e));
         nodeid_free(this);
@@ -113,29 +131,44 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 
 void bind_msg_type(uint8_t msgtype)
 {
-    /* Unused */
+    /* Noy yet developed! */
 }
 
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
+  /* Noy yet developed! */
+  return -1;
 }
 
 int recv_from_peer(const struct nodeID *local, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
+  /* Noy yet developed! */
+  return -1;
 }
 
 int wait4data(const struct nodeID *n, struct timeval *tout, int *user_fds)
 {
+  /* Noy yet developed! */
+  return -1;
 }
 
 const char *node_addr(const struct nodeID *s)
 {
+  /* Noy yet developed! */
+  static char addr[256];
+
+  sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr), ntohs(s->addr.sin_port));
+
+  return addr;
 }
 
 struct nodeID *nodeid_undump(const uint8_t *b, int *len)
 {
+  struct nodeID *res;
+
+  return res;
 }
 
 int nodeid_dump(uint8_t *b, const struct nodeID *s, size_t max_write_size)
@@ -144,12 +177,13 @@ int nodeid_dump(uint8_t *b, const struct nodeID *s, size_t max_write_size)
 
 const char *node_ip(const struct nodeID *s)
 {
+  
 }
 
 /* -- Internal functions ---------------------------------------------- */
 
 static
-int tcp_connect (sock_data_t *sd, int *e)
+int tcp_connect (nodeID *sd, int *e)
 {
     int fd;
 
@@ -159,6 +193,7 @@ int tcp_connect (sock_data_t *sd, int *e)
     }
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
+
     if (fd == -1) {
         if (e) *e = errno;
         return -1;
@@ -176,7 +211,7 @@ int tcp_connect (sock_data_t *sd, int *e)
 }
 
 static
-int tcp_serve (sock_data_t *sd, int backlog, int *e)
+int tcp_serve (nodeID *sd, int backlog, int *e)
 {
     int fd;
 
