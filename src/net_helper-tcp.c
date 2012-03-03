@@ -22,8 +22,8 @@
 
 /* -- Internal functions ---------------------------------------------- */
 
-static int tcp_connect (sock_data_t *sd, int *e);
-static int tcp_serve (sock_data_t *sd, int backlog, int *e);
+static int tcp_connect (nodeID *sd, int *e);
+static int tcp_serve (nodeID *sd, int backlog, int *e);
 
 /* -- Constants ------------------------------------------------------- */
 
@@ -167,7 +167,7 @@ const char *node_addr(const struct nodeID *s)
 struct nodeID *nodeid_undump(const uint8_t *b, int *len)
 {
   struct nodeID *res;
-
+  /* nothing done at the moment! */
   return res;
 }
 
@@ -177,7 +177,7 @@ int nodeid_dump(uint8_t *b, const struct nodeID *s, size_t max_write_size)
 
 const char *node_ip(const struct nodeID *s)
 {
-  
+  return "";
 }
 
 /* -- Internal functions ---------------------------------------------- */
