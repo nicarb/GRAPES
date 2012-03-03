@@ -5,20 +5,21 @@
  *  This is free software; see lgpl-2.1.txt
  */
 
-#include <errno.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-#include <stdio.h>
-#include <string.h>
 
 #include <arpa/inet.h>
+#include <assert.h>
+#include <errno.h>
 #include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "net_helper.h"
 #include "config.h"
+#include "NetHelper/dictionary.h"
 
 /* -- Internal functions ---------------------------------------------- */
 
@@ -32,22 +33,25 @@ static const unsigned DEFAULT_BACKLOG = 50;
 
 /* -- Interface exported symbols -------------------------------------- */
 
-struct nodeID {
-    struct sockaddr_in addr;
+typedef struct {
     int fd;
-    struct {
-        unsigned self : 1;
-    } conf;
-};
+    dict_t neighbors;
+} local_info_t;
 
-typedef struct nodeID nodeid_t;
+typedef struct nodeID {
+    struct sockaddr_in addr;
+    local_info_t *local;        // non-NULL only for local node */
+} nodeid_t;
 
 struct nodeID *nodeid_dup (struct nodeID *s)
 {
+    /* Local nodeID cannot be duplicated! */
+    assert(s->local == NULL);
+
     nodeid_t *ret = malloc(sizeof(nodeid_t));
 
     if (ret == NULL) return NULL;
-    memcpy(ret, s, sizeof(nodeid_dup));
+    memcpy(ret, s, sizeof(nodeid_t));
     return ret;
 }
 
@@ -59,13 +63,11 @@ int nodeid_cmp (const struct nodeID *s1, const struct nodeID *s2)
     return memcmp(&s1->addr, &s2->addr, sizeof(struct sockaddr_in));
 }
 
-
 /* @return 1 if the two nodeID are identical or 0 if they are not. */
 int nodeid_equal (const struct nodeID *s1, const struct nodeID *s2)
 {
     return nodeid_cmp(&s1, &s2) == 0;
 }
-
 
 struct nodeID *create_node (const char *IPaddr, int port)
 {
@@ -73,27 +75,29 @@ struct nodeID *create_node (const char *IPaddr, int port)
 
     ret->addr.sin_family = AF_INET;
     ret->addr.sin_port = htons(port);
-    ret->fd = -1;
 
     if (IPaddr == NULL) {
+        /* In case of server, specifying NULL will allow anyone to
+         * connect. */
         ret->addr.sin_addr = INADDR_ANY;
     }
 
-    if (inet_aton(IPaddr, &ret->addr.sin_addr) == 0) {
+    if (inet_pton(AF_INET, IPaddr, (void *)&ret->addr.sin_addr) == 0) {
+        fprintf(stderr, "Invalid ip address %s\n", IPaddr);
         free(ret);
         return NULL;
     }
 
-    ret->conf.self = 0;
     return ret;
 }
 
 void nodeid_free (struct nodeID *s)
 {
-    int fd;
-
-    if ((fd = s->fd) == -1) {
-        close(fd);
+    if (s->local != NULL) {
+        /* TODO: dictionary delete should close also internal file
+         * descriptors */
+        dict_delete(s->local.neighbors);
+        close(s->local.fd);
     }
     free(s);
 }
@@ -103,21 +107,23 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 {
     nodeid_t *this;
     struct tag *cfg_tags;
-    int backlog;
     int e;
 
     this = create_node(IPaddr, port);
     if (this == NULL) return NULL;
-    this->conf.self = 1;
 
-    backlog = DEFAULT_BACKLOG;
     if (config && (cfg_tags = config_parse(config))) {
         config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
                                  DEFAULT_BACKLOG);
         free(cfg_tags);
         fprintf(stderr, "Backlog change\n");
     }
-    fprintf(stderr, "Backlog value: %i\n", backlog);
+    fprintf(stderr, "Backlog value: %i\n", backlog);    // TODO: remove
+
+    /* TODO: change dictionary init function to accept directly the
+     *       cfg_tags instead of a string. Change also this part
+     *       accordingly. The best strategy here is make the dictionary
+     *       ignore a NULL `struct tag *` */
 
     if (tcp_serve(&this, backlog, &e) < 0) {
         fprintf(stderr, "net-helper: creating server errno %d: %s\n", e,
@@ -186,6 +192,7 @@ static
 int tcp_connect (nodeID *sd, int *e)
 {
     int fd;
+    /* TODO: here modify to support hash picking. It won't work till then. */
 
     if (sd->fd != -1) {
         /* Already connected */
@@ -214,8 +221,9 @@ static
 int tcp_serve (nodeID *sd, int backlog, int *e)
 {
     int fd;
+    assert(sd->local != NULL);
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd == -1) {
         if (e) *e = errno;
         return -1;
@@ -233,7 +241,7 @@ int tcp_serve (nodeID *sd, int backlog, int *e)
         close(fd);
         return -3;
     }
-    sd->fd = fd;
+    sd->local->fd = fd;
 
     return 0;
 }
