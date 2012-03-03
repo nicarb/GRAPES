@@ -20,17 +20,17 @@
 #include "net_helper.h"
 #include "config.h"
 
-/* -- Internal functions ---------------------------------------------- */
+/* -- Internal functions --------------------------------------------- */
 
 static int tcp_connect (nodeID *sd, int *e);
 static int tcp_serve (nodeID *sd, int backlog, int *e);
 
-/* -- Constants ------------------------------------------------------- */
+/* -- Constants ------------------------------------------------------ */
 
 static const char *   CONF_KEY_BACKLOG = "tcp_backlog";
 static const unsigned DEFAULT_BACKLOG = 50;
 
-/* -- Interface exported symbols -------------------------------------- */
+/* -- Interface exported symbols ------------------------------------- */
 
 struct nodeID {
     struct sockaddr_in addr;
@@ -134,21 +134,56 @@ void bind_msg_type(uint8_t msgtype)
     /* Noy yet developed! */
 }
 
+/* 
+ */
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
-                 const uint8_t *buffer_ptr, int buffer_size)
+		 const uint8_t *buffer_ptr, int buffer_size)
 {
   /* Noy yet developed! */
-  return -1;
+  int res = -1;
+
+  if (to->fd > 0) {
+    res = write(to->fd, &buffer_ptr, buffer_size);
+  }
+  else {
+    fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n", to->fd);
+  }
+
+  if (res  < 0){
+    int error = errno;
+    fprintf(stderr,"net-helper-tcp: sendmsg failed errno %d: %s\n",
+	    error, strerror(error));
+  }
+
+
+  return res;
 }
 
-int recv_from_peer(const struct nodeID *local, struct nodeID **remote,
+int recv_from_peer(const struct nodeID *local, struct nodeID **remote,    
                    uint8_t *buffer_ptr, int buffer_size)
 {
   /* Noy yet developed! */
-  return -1;
+  int res = -1;
+
+  *remote = malloc(sizeof(struct nodeID));
+  if (*remote == NULL) {
+    return -1;
+  }
+
+  res = recvmsg(local->fd, &msg, 0);
+
+  if (res < 0) {
+    return -1;
+  }
+
+  memcpy(&(*remote)->addr, &raddr, msg.msg_namelen);
+  (*remote)->fd = -1;
+
+  return res;
 }
 
-int wait4data(const struct nodeID *n, struct timeval *tout, int *user_fds)
+int wait4data(const struct nodeID *n, struct timeval *tout,
+	      int *user_fds)
 {
   /* Noy yet developed! */
   return -1;
@@ -159,7 +194,8 @@ const char *node_addr(const struct nodeID *s)
   /* Noy yet developed! */
   static char addr[256];
 
-  sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr), ntohs(s->addr.sin_port));
+  sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr),
+	  ntohs(s->addr.sin_port));
 
   return addr;
 }
@@ -171,7 +207,8 @@ struct nodeID *nodeid_undump(const uint8_t *b, int *len)
   return res;
 }
 
-int nodeid_dump(uint8_t *b, const struct nodeID *s, size_t max_write_size)
+int nodeid_dump(uint8_t *b, const struct nodeID *s,
+		size_t max_write_size)
 {
 }
 
@@ -180,7 +217,7 @@ const char *node_ip(const struct nodeID *s)
   return "";
 }
 
-/* -- Internal functions ---------------------------------------------- */
+/* -- Internal functions --------------------------------------------- */
 
 static
 int tcp_connect (nodeID *sd, int *e)
