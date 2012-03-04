@@ -50,6 +50,8 @@ typedef struct dict * dict_t;
  *
  * @param[in] af Either AF_INET or AF_INET6 (the latter is not supported,
  *               it's there just for future enhancements);
+ * @param[in] autoclose If true automatically close internal file
+ *                      descriptors on deletion.
  * @param[in] conf A string configuration which may provides
  *                 implementation-dependent parameter
  *
@@ -60,13 +62,21 @@ typedef struct dict * dict_t;
  *
  * @return The newly allocated dictionary.
  */
-dict_t dict_new (int af, struct tag *cfg);
+dict_t dict_new (int af, int autoclose, struct tag *cfg);
 
 /** Destructor for the dictionary.
  *
  * @param[in] D The dictionary to be destroyed.
  */
 void dict_delete (dict_t D);
+
+/** Number of stored items
+ *
+ * @param[in] D The dictionary.
+ *
+ * @return the number of stored items.
+ */
+size_t dict_size (dict_t D);
 
 /** Lookup function.
  *
@@ -94,8 +104,11 @@ int dict_insert (dict_t D, const struct sockaddr * addr, int fd);
 
 /** Remotion function.
  *
+ * Removes the required address from the dictionary, also closing the
+ * corresponding connection.
+ *
  * @param[in] D The dictionary;
- * @param[in] addr The address to be removed;
+ * @param[in] addr The address to be removed.
  *
  * @retval 0 on success;
  * @retval -1 on failure (no such item).

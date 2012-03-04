@@ -42,18 +42,19 @@ static const unsigned DEFAULT_N_BUCKETS = 23;
 
 struct dict {
     dhash_t *ht;
+    size_t count;
 };
 
 static
 uintptr_t sockaddr_hash (const void *key)
 {
-    return ((const struct sockaddr_in *)key)->sin_addr.s_addr;
+    const struct sockaddr_in *K = key;
+    return K->sin_addr.s_addr + K->sin_port;
 }
 
 static
 int sockaddr_cmp (const void *v0, const void *v1)
 {
-    // TODO replace with proper comparison procedure & friends
     return memcmp(v0, v1, sizeof(struct sockaddr_in));
 }
 
@@ -66,7 +67,21 @@ void * sockaddr_copy (const void *s)
     return ret;
 }
 
-dict_t dict_new (int af, struct tag *cfg_tags)
+static
+void * fd_copy (const void *s)
+{
+    /* A file descriptor can just be copied, it's an integer */
+    return s;
+}
+
+static
+void fd_close (const void *s)
+{
+    intptr_t fd = (intptr_t) s;
+    close(fd);
+}
+
+dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
 {
     if (af != AF_INET) {
         fprintf(stderr, "dictionary: Only AF_INET is supported for the"
@@ -83,11 +98,16 @@ dict_t dict_new (int af, struct tag *cfg_tags)
     dict_t ret = malloc(sizeof(struct dict));
     assert(ret != NULL);
 
-    dhash_cprm_t cprm = {
+    dhash_cprm_t addr_cprm = {
         .cp = sockaddr_copy,
         .rm = free
     };
-    ret->ht = dhash_new(nbks, sockaddr_hash, sockaddr_cmp, &cprm, NULL);
+    dhash_cprm_t fd_cprm = {
+        .cp = fd_copy,
+        .rm = fd_close
+    };
+    ret->ht = dhash_new(nbks, sockaddr_hash, sockaddr_cmp,
+                        &addr_cprm, autoclose ? &fd_cprm : NULL);
     return ret;
 }
 
@@ -95,6 +115,11 @@ void dict_delete (dict_t D)
 {
     dhash_free(D->ht);
     free(D);
+}
+
+size_t dict_size (dict_t D)
+{
+    return D->count;
 }
 
 int dict_lookup (dict_t D, const struct sockaddr * addr, int *fd)
@@ -112,14 +137,24 @@ int dict_lookup (dict_t D, const struct sockaddr * addr, int *fd)
 int dict_insert (dict_t D, const struct sockaddr * addr, int fd)
 {
     intptr_t in = fd;
-    return dhash_insert(D->ht, (const void *)addr, (void *)in)
-           == DHASH_FOUND ? 1 : 0;
+    if (dhash_insert(D->ht, (const void *)addr, (void *)in)
+            == DHASH_FOUND) {
+        return 1;
+    } else {
+        D->count ++;
+        return 0;
+    }
 }
 
 int dict_remove (dict_t D, const struct sockaddr * addr)
 {
-    return dhash_delete(D->ht, (const void *)addr, NULL)
-           == DHASH_FOUND ? 0 : -1;
+    if (dhash_delete(D->ht, (const void *)addr, NULL)
+            == DHASH_FOUND) {
+        D->count --;
+        return 0;
+    } else {
+        return -1;
+    }
 }
 
 void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
