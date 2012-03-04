@@ -43,7 +43,8 @@ typedef struct nodeID {
 	local_info_t *local;        // non-NULL only for local node */
 } nodeid_t;
 
-struct nodeID *nodeid_dup (struct nodeID *s) {
+struct nodeID *nodeid_dup (struct nodeID *s)
+{
 	/* Local nodeID cannot be duplicated! */
 	assert(s->local == NULL);
 
@@ -68,7 +69,8 @@ int nodeid_equal (const struct nodeID *s1, const struct nodeID *s2)
 	return nodeid_cmp(&s1, &s2) == 0;
 }
 
-struct nodeID *create_node (const char *IPaddr, int port) {
+struct nodeID *create_node (const char *IPaddr, int port)
+{
 	nodeid_t *ret = malloc(sizeof(nodeid_t));
 
 	ret->addr.sin_family = AF_INET;
@@ -78,14 +80,11 @@ struct nodeID *create_node (const char *IPaddr, int port) {
 		/* In case of server, specifying NULL will allow anyone to
 		 * connect. */
 		ret->addr.sin_addr = INADDR_ANY;
-	}
-
-	if (inet_pton(AF_INET, IPaddr, (void *)&ret->addr.sin_addr) == 0) {
+	} else if (inet_pton(AF_INET, IPaddr, (void *)&ret->addr.sin_addr) == 0) {
 		fprintf(stderr, "Invalid ip address %s\n", IPaddr);
 		free(ret);
 		return NULL;
 	}
-
 	return ret;
 }
 
@@ -102,7 +101,8 @@ void nodeid_free (struct nodeID *s)
 }
 
 struct nodeID * net_helper_init (const char *IPaddr, int port,
-								 const char *config) {
+								 const char *config)
+{
 	nodeid_t *this;
 	struct tag *cfg_tags = NULL;
 	int e;
@@ -142,9 +142,19 @@ void bind_msg_type(uint8_t msgtype) {}
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
 				 const uint8_t *buffer_ptr, int buffer_size)
 {
-	/* Noy yet developed! */
-	int res = -1;
+    int peer_fd;
+    int check;
+    int res = -1;
 
+    assert(from->local != NULL);    // FIXME: is "from" the self node?
+    if (dict_lookup(from->local->neighbors, &to->addr, &peer_fd) == -1) {
+        /* TODO: here connect + insert into hash table the obtained
+         * file-descriptor.
+         * Is this good? Should we be aware of something here? */
+    }
+
+    /* TODO: then we can go with transmission */
+#if 0
 	if (to->fd > 0) {
 		res = write(to->fd, &buffer_ptr, buffer_size);
 	} else {
@@ -156,26 +166,48 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
 		fprintf(stderr,"net-helper-tcp: sendmsg failed errno %d: %s\n",
 				error, strerror(error));
 	}
+#endif
 
-
-	return res;
+    return res;
 }
 
-int recv_from_peer(const struct nodeID *local, struct nodeID **remote,
+int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 				   uint8_t *buffer_ptr, int buffer_size)
 {
-	/* Noy yet developed! */
 	int res = -1;
+    int peer_fd;
+    struct sockaddr_in peer_addr;
+    dict_t neigbors;
 
+    assert(self->local != NULL);
+    neighbors = self->local->neighbors;
+
+    /* This is what external software using the interface is expecting */
 	*remote = malloc(sizeof(struct nodeID));
 	if (*remote == NULL) {
 		return -1;
 	}
 
-	res = recvmsg(local->fd, &msg, 0);
 
-	if (res < 0) {
-		return -1;
+    /* TODO: implement fair_select
+     *
+     * The interface should be something like:
+     *
+     * @param[in] hash The hash table;
+     * @param[out] fd  The file descriptor of the peer which sent the
+     *                 data;
+     * @param[out] addr The corresponding address.
+     */
+#if 0
+    fair_select(neighbors, &peer_fd, &peer_addr); // TODO: to be implemented
+    res = read(fd, buffer, buffer_size);
+#endif
+
+	if (res <= 0) {
+        /* As the socket is in error or EOF has been reached, this
+         * connection must be closed */
+        dict_remove(neighbors, &peer_addr);
+		return res;
 	}
 
 	memcpy(&(*remote)->addr, &raddr, msg.msg_namelen);
