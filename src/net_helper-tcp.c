@@ -35,7 +35,7 @@ static const unsigned DEFAULT_BACKLOG = 50;
 
 typedef struct {
 	int fd;
-	dict_t neighbors;
+	dict_t neighbours;
 } local_info_t;
 
 typedef struct nodeID {
@@ -88,18 +88,22 @@ struct nodeID *create_node (const char *IPaddr, int port)
 	return ret;
 }
 
+/* 
+ */
 void nodeid_free (struct nodeID *s)
 {
 	if (s->local != NULL) {
 		/* TODO: dictionary delete should close also internal file
 		 * descriptors */
-		dict_delete(s->local.neighbors);
+		dict_delete(s->local.neighbours);
 		close(s->local.fd);
 		free(s->local);
 	}
 	free(s);
 }
 
+/* 
+ */
 struct nodeID * net_helper_init (const char *IPaddr, int port,
 								 const char *config)
 {
@@ -122,7 +126,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 		free(cfg_tags);
 		return NULL;
 	}
-	this->local.neighbors = dict_new(AF_INET, cfg_tags);
+	this->local.neighbours = dict_new(AF_INET, cfg_tags);
 	free(cfg_tags);
 
 	if (tcp_serve(&this, backlog, &e) < 0) {
@@ -140,159 +144,179 @@ void bind_msg_type(uint8_t msgtype) {}
 /*
  */
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
-				 const uint8_t *buffer_ptr, int buffer_size)
+		 const uint8_t *buffer_ptr, int buffer_size)
 {
-    int peer_fd;
-    int check;
-    int res = -1;
+  int peer_fd;
+  int check, errno;
+  int res = -1;
+  dict_t neighbours;
 
-    assert(from->local != NULL);    // FIXME: is "from" the self node?
-    if (dict_lookup(from->local->neighbors, &to->addr, &peer_fd) == -1) {
-        /* TODO: here connect + insert into hash table the obtained
-         * file-descriptor.
-         * Is this good? Should we be aware of something here? */
+  assert(from->local != NULL);    // FIXME: is "from" the self node?
+  neighbours = from->local->neighbours;
+  if (dict_lookup(neighbours, &to->addr, &peer_fd) == -1) {
+    /* TODO: here connect + insert into hash table the obtained
+     * file-descriptor.
+     * Is this good? Should we be aware of something here? */
+    res = tcp_connect (to,&errno);
+    if (res < 0) {
+      fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n",
+	      to->fd);
+      return res;
     }
-
-    /* TODO: then we can go with transmission */
+  }
+  
+  /* TODO: then we can go with transmission */
 #if 0
-	if (to->fd > 0) {
-		res = write(to->fd, &buffer_ptr, buffer_size);
-	} else {
-		fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n", to->fd);
-	}
-
-	if (res  < 0) {
-		int error = errno;
-		fprintf(stderr,"net-helper-tcp: sendmsg failed errno %d: %s\n",
-				error, strerror(error));
-	}
+  if (to->fd > 0) {
+    res = write(to->fd, &buffer_ptr, buffer_size);
+  } else {
+    fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n",
+	    to->fd);
+  }
+  
+  if (res  < 0) {
+    int error = errno;
+    fprintf(stderr,"net-helper-tcp: sendmsg failed errno %d: %s\n",
+	    error, strerror(error));
+  }
 #endif
-
+  
     return res;
+}
+
+/* Fair select of the receiving peer
+ * 
+ * @param[in] hash The hash table;
+ * @param[out] fd  The file descriptor of the peer which sent the
+ *                 data;
+ * @param[out] addr The corresponding address.
+ */
+int fair_select(dick_t *neighbours, int *peer_fd, sockaddr_t *peer_addr) {
+  int res = -1;
+
+  res = dict_lookup(neighbours, sockaddr_t, &peer_fd); 
+  //TODO: implementing the fair_select ausiliary structure
+
+  if (res < 0) {
+    fprintf(stderr,"The inserted value does not exist.\n");
+  }
+
+  return res;
 }
 
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 				   uint8_t *buffer_ptr, int buffer_size)
 {
-	int res = -1;
-    int peer_fd;
-    struct sockaddr_in peer_addr;
-    dict_t neigbors;
+  int res = -1;
+  int peer_fd;
+  struct sockaddr_in peer_addr;
+  dict_t neigbors;
+  
+  assert(self->local != NULL);
+  neighbours = self->local->neighbours;
+  
+  /* This is what external software using the interface is expecting */
+  *remote = malloc(sizeof(struct nodeID));
+  if (*remote == NULL) {
+    return -1;
+  }  
 
-    assert(self->local != NULL);
-    neighbors = self->local->neighbors;
+  res = fair_select(neighbours, &peer_fd, &peer_addr);
+  if (res < 0)
+    return -1;
 
-    /* This is what external software using the interface is expecting */
-	*remote = malloc(sizeof(struct nodeID));
-	if (*remote == NULL) {
-		return -1;
-	}
-
-
-    /* TODO: implement fair_select
-     *
-     * The interface should be something like:
-     *
-     * @param[in] hash The hash table;
-     * @param[out] fd  The file descriptor of the peer which sent the
-     *                 data;
-     * @param[out] addr The corresponding address.
-     */
-#if 0
-    fair_select(neighbors, &peer_fd, &peer_addr); // TODO: to be implemented
-    res = read(fd, buffer, buffer_size);
-#endif
-
-	if (res <= 0) {
-        /* As the socket is in error or EOF has been reached, this
-         * connection must be closed */
-        dict_remove(neighbors, &peer_addr);
-		return res;
-	}
-
-	memcpy(&(*remote)->addr, &raddr, msg.msg_namelen);
-	(*remote)->fd = -1;
-
-	return res;
+  res = read(peer_fd, buffer_ptr, buffer_size);
+  
+  if (res <= 0) {
+    /* As the socket is in error or EOF has been reached, this
+     * connection must be closed */
+    dict_remove(neighbours, &peer_addr);
+    return res;
+  }
+  
+  memcpy(&(*remote)->addr, &raddr, msg.msg_namelen);
+  (*remote)->fd = -1;
+  
+  return res;
 }
 
 struct select_helper {
-	fd_set readfds;
-	int max;
+  fd_set readfds;
+  int max;
 };
 
 static
 int scan_fill_set (void *ctx, const struct sockaddr *addr, int fd)
 {
-	struct select_helper *sh = (struct select_helper *) ctx;
-	FD_SET(fd, &sh->readfds);
-	if (fd > sh->max) {
-		sh->max = fd;
-	}
-	return 1;
+  struct select_helper *sh = (struct select_helper *) ctx;
+  FD_SET(fd, &sh->readfds);
+  if (fd > sh->max) {
+    sh->max = fd;
+  }
+  return 1;
 }
 
 /* Behaves in a way which is compatible with the `wait4data` function
  * provided by the UDP version */
 int wait4data(const struct nodeID *n, struct timeval *tout,
-			  int *user_fds)
+	      int *user_fds)
 {
-	dict_t neighbors = n->local->neighbors;
-	int res;
-	struct select_helper sh;
-	int res;
-
-	/* We start with the file neighbors descriptors */
-
-	FD_ZERO(&sh.readfds);
-	sh.max = -1;
-	dict_scan(neighbors, scan_fill_set, (void *)&sh);
-
-	res = select(sh.max, &sh.readfds, NULL, NULL, tout);
-	if (res < 0) {
-		return res;         // We had an error.
-	} else if (res > 0) {
-		return 1;           // Incoming data from neighbors;
-	}
-
-	if (user_fds == NULL) {
-		return 0;           // No incoming data and no user_fds to check
-	}
-
-	/* There may be some user file descriptors waiting. Starting again on
+  dict_t neighbours = n->local->neighbours;
+  int res;
+  struct select_helper sh;
+  int res;
+  
+  /* We start with the file neighbours descriptors */
+  
+  FD_ZERO(&sh.readfds);
+  sh.max = -1;
+  dict_scan(neighbours, scan_fill_set, (void *)&sh);
+  
+  res = select(sh.max, &sh.readfds, NULL, NULL, tout);
+  if (res < 0) {
+    return res;         // We had an error.
+  } else if (res > 0) {
+    return 1;           // Incoming data from neighbours;
+  }
+  
+  if (user_fds == NULL) {
+    return 0;           // No incoming data and no user_fds to check
+  }
+  
+  /* There may be some user file descriptors waiting. Starting again on
 	 * user_fds */
-
-	FD_ZERO(&sh.readfds);
-	sh.max = -1;
-	for (i = 0; user_fds[i] != -1; i++) {
-		FD_SET(user_fds[i], &sh.readfds);
-		if (user_fds[i] > sh.max) {
-			sh.max = user_fds[i];
-		}
-	}
-	res = select(sh.max, &sh.readfds, NULL, NULL, tout);
-	if (res <= 0) {
-		return res;
-	}
-
-	for (i = 0; user_fds[i] != -1; i++) {
-		if (!FD_ISSET(user_fds[i], &fds)) {
-			user_fds[i] = -2;
-		}
-	}
-
-	return 2;
+  
+  FD_ZERO(&sh.readfds);
+  sh.max = -1;
+  for (i = 0; user_fds[i] != -1; i++) {
+    FD_SET(user_fds[i], &sh.readfds);
+    if (user_fds[i] > sh.max) {
+      sh.max = user_fds[i];
+    }
+  }
+  res = select(sh.max, &sh.readfds, NULL, NULL, tout);
+  if (res <= 0) {
+    return res;
+  }
+  
+  for (i = 0; user_fds[i] != -1; i++) {
+    if (!FD_ISSET(user_fds[i], &fds)) {
+      user_fds[i] = -2;
+    }
+  }
+  
+  return 2;
 }
 
 const char *node_addr(const struct nodeID *s)
 {
-	/* Noy yet developed! */
-	static char addr[256];
-
-	sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr),
-			ntohs(s->addr.sin_port));
-
-	return addr;
+  /* Noy yet developed! */
+  static char addr[256];
+  
+  sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr),
+	  ntohs(s->addr.sin_port));
+  
+  return addr;
 }
 
 struct nodeID *nodeid_undump(const uint8_t *b, int *len) {
@@ -312,7 +336,8 @@ const char *node_ip(const struct nodeID *s)
 }
 
 /* -- Internal functions --------------------------------------------- */
-
+/* 
+ */
 static
 int tcp_connect (nodeID *sd, int *e)
 {
@@ -342,6 +367,8 @@ int tcp_connect (nodeID *sd, int *e)
 	return 0;
 }
 
+/* 
+ */
 static
 int tcp_serve (nodeID *sd, int backlog, int *e)
 {
