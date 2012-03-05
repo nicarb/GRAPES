@@ -59,26 +59,31 @@ int sockaddr_cmp (const void *v0, const void *v1)
 }
 
 static
+void * create_copy (const void *src, size_t size)
+{
+    void * dst = malloc(size);
+    assert(dst != NULL);
+    memcpy(dst, src, size);
+    return dst;
+}
+
+static
 void * sockaddr_copy (const void *s)
 {
-    void * ret = malloc(sizeof(struct sockaddr_in));
-    assert(ret != NULL);
-    memcpy(ret, s, sizeof(struct sockaddr_in));
-    return ret;
+    return create_copy(s, sizeof(struct sockaddr_in));
 }
 
 static
-void * fd_copy (const void *s)
+void * peer_info_copy (const void *s)
 {
-    /* A file descriptor can just be copied, it's an integer */
-    return s;
+    return create_copy(s, sizeof(peer_info_t));
 }
 
 static
-void fd_close (const void *s)
+void peer_info_free (void *s)
 {
-    intptr_t fd = (intptr_t) s;
-    close(fd);
+    close(((peer_info_t *)s)->fd);
+    free(s);
 }
 
 dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
@@ -102,12 +107,12 @@ dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
         .cp = sockaddr_copy,
         .rm = free
     };
-    dhash_cprm_t fd_cprm = {
-        .cp = fd_copy,
-        .rm = fd_close
+    dhash_cprm_t peer_info_cprm = {
+        .cp = peer_info_copy,
+        .rm = autoclose ? peer_info_free : free
     };
     ret->ht = dhash_new(nbks, sockaddr_hash, sockaddr_cmp,
-                        &addr_cprm, autoclose ? &fd_cprm : NULL);
+                        &addr_cprm, &peer_info_cprm);
     return ret;
 }
 
@@ -122,22 +127,20 @@ size_t dict_size (dict_t D)
     return D->count;
 }
 
-int dict_lookup (dict_t D, const struct sockaddr * addr, int *fd)
+int dict_lookup (dict_t D, const struct sockaddr * addr,
+                 peer_info_t *info)
 {
-    intptr_t out;
-
-    if (dhash_search(D->ht, (const void *)addr, (void **)&fd)
-            == DHASH_FOUND) {
-        *fd = out;
-        return 0;
-    }
-    return -1;
+    return dhash_search(D->ht, (const void *)addr, (void *)&info)
+           == DHASH_FOUND ? 0 : -1;
 }
 
 int dict_insert (dict_t D, const struct sockaddr * addr, int fd)
 {
-    intptr_t in = fd;
-    if (dhash_insert(D->ht, (const void *)addr, (void *)in)
+    peer_info_t info;
+    info.fd = fd;
+    info.flags.used = 0;
+
+    if (dhash_insert(D->ht, (const void *)addr, (void *)&info)
             == DHASH_FOUND) {
         return 1;
     } else {
@@ -164,8 +167,7 @@ void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
     while (go && diter_hasnext(it)) {
         dhash_pair_t *P = diter_next(it);
 
-        intptr_t fd = (intptr_t) dhash_val(P);
-        switch (cback(ctx, dhash_key(P), (int)fd)) {
+        switch (cback(ctx, dhash_key(P), dhash_val(P))) {
             case 3: // delete and continue
                 diter_remove(it, NULL);
             case 1: // keep and continue
