@@ -46,6 +46,13 @@
 
 typedef struct dict * dict_t;
 
+typedef struct {
+    int fd;
+    struct {
+        unsigned used : 1;
+    } flags;
+} peer_info_t;
+
 /** Constructor for the dictionary.
  *
  * @param[in] af Either AF_INET or AF_INET6 (the latter is not supported,
@@ -87,7 +94,7 @@ size_t dict_size (dict_t D);
  * @retval 0 on success;
  * @retval -1 on failure.
  */
-int dict_lookup (dict_t D, const struct sockaddr * addr, int *fd);
+int dict_lookup (dict_t D, const struct sockaddr * addr, peer_info_t *fd);
 
 /** Insertion function.
  *
@@ -125,7 +132,7 @@ int dict_remove (dict_t D, const struct sockaddr * addr);
  *
  * @param[in] ctx The user context argument;
  * @param[in] addr The address;
- * @param[in] fd The file descriptor (you may change it).
+ * @param[in] info A (modificable) internal instance of peer_info_t.
  *
  * @retval 0 to stop the iteration;
  * @retval 1 to continue the iteration;
@@ -135,7 +142,7 @@ int dict_remove (dict_t D, const struct sockaddr * addr);
  * @see dict_scan
  */
 typedef int (* dict_scancb_t) (void *ctx, const struct sockaddr *addr,
-                               int fd);
+                               peer_info_t *info);
 
 /** Implementation-agnostic scanning procedure for the dictionary.
  *
