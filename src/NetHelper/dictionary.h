@@ -5,7 +5,6 @@
  *  This is free software; see lgpl-2.1.txt
  */
 
-
 /*
 
    This module provides an independent interface for a generic dictionary.
@@ -107,6 +106,13 @@ int dict_insert (dict_t D, const struct sockaddr * addr, int fd);
  */
 int dict_remove (dict_t D, const struct sockaddr * addr);
 
+typedef enum {
+    DICT_SCAN_STOP,
+    DICT_SCAN_CONTINUE,
+    DICT_SCAN_DEL_STOP,
+    DICT_SCAN_DEL_CONTINUE
+} dict_scanact_t;
+
 /** Callback for dictionary looping.
  *
  * Provide a function complying with this type in order to scan a
@@ -119,15 +125,18 @@ int dict_remove (dict_t D, const struct sockaddr * addr);
  * @param[in] addr The address;
  * @param[in] info A (modificable) internal instance of peer_info_t.
  *
- * @retval 0 to stop the iteration;
- * @retval 1 to continue the iteration;
- * @retval 2 to delete the read value and stop the iteration;
- * @retval 3 to delete the read and continue the iteration.
+ * @retval dict_scanact_t::DICT_SCAN_STOP to stop the iteration;
+ * @retval dict_scanact_t::DICT_SCAN_CONTINUE to continue the iteration;
+ * @retval dict_scanact_t::DICT_SCAN_DEL_STOP to delete the read value and
+ *         stop the iteration;
+ * @retval dict_scanact_t::DICT_SCAN_DEL_CONTINUE to delete the read and
+ *         continue the iteration.
  *
  * @see dict_scan
  */
-typedef int (* dict_scancb_t) (void *ctx, const struct sockaddr *addr,
-                               peer_info_t *info);
+typedef dict_scanact_t (* dict_scancb_t) (void *ctx,
+                                          const struct sockaddr *addr,
+                                          peer_info_t *info);
 
 /** Implementation-agnostic scanning procedure for the dictionary.
  *

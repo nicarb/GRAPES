@@ -168,13 +168,13 @@ void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
         dhash_pair_t *P = diter_next(it);
 
         switch (cback(ctx, dhash_key(P), dhash_val(P))) {
-            case 3: // delete and continue
+            case DICT_SCAN_DEL_CONTINUE:
                 diter_remove(it, NULL);
-            case 1: // keep and continue
+            case DICT_SCAN_CONTINUE:
                 break;
-            case 2: // delete and stop
+            case DICT_SCAN_DEL_STOP:
                 diter_remove(it, NULL);
-            case 0: // keep and stop
+            case DICT_SCAN_STOP:
                 go = 0;
                 break;
         }
