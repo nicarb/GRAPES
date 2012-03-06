@@ -105,7 +105,7 @@ void nodeid_free (struct nodeID *s)
 /* 
  */
 struct nodeID * net_helper_init (const char *IPaddr, int port,
-								 const char *config)
+				 const char *config)
 {
 	nodeid_t *this;
 	struct tag *cfg_tags = NULL;
@@ -146,17 +146,28 @@ void bind_msg_type(uint8_t msgtype) {}
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
 		 const uint8_t *buffer_ptr, int buffer_size)
 {
-  int peer_fd;
   int check, errno;
   int res = -1;
   dict_t neighbours;
+  peer_info_t *pfd;
 
   assert(from->local != NULL);    // FIXME: is "from" the self node?
   neighbours = from->local->neighbours;
-  if (dict_lookup(neighbours, &to->addr, &peer_fd) == -1) {
+  
+  if (dict_lookup(neighbours, &to->addr, &pfd) == -1) {
     /* TODO: here connect + insert into hash table the obtained
      * file-descriptor.
      * Is this good? Should we be aware of something here? */
+    if (pfd == NULL) {
+      fprintf(stderr, "net-helper-tcp: Error on lookup dictionary: peer_info of %d is not valid.\n",
+	      to->fd);
+      return -1;
+    }
+    if (pfd->flags->used == 1) {      
+      fprintf(stderr, "net-helper-tcp: Error on lookup dictionary: peer-fd has been used %d.\n",
+	      pfd->flags->used);
+      return -2;
+    }
     res = tcp_connect (to,&errno);
     if (res < 0) {
       fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n",
@@ -166,7 +177,7 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
   }
   
   /* TODO: then we can go with transmission */
-#if 0
+  //#if 0
   if (to->fd > 0) {
     res = write(to->fd, &buffer_ptr, buffer_size);
   } else {
@@ -179,9 +190,9 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
     fprintf(stderr,"net-helper-tcp: sendmsg failed errno %d: %s\n",
 	    error, strerror(error));
   }
-#endif
-  
-    return res;
+  //#endif
+    
+  return res;
 }
 
 /* Fair select of the receiving peer
@@ -191,7 +202,7 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
  *                 data;
  * @param[out] addr The corresponding address.
  */
-int fair_select(dick_t *neighbours, int *peer_fd, sockaddr_t *peer_addr) {
+int fair_select(dick_t *neighbours,  *pfd, sockaddr_t *peer_addr) {
   int res = -1;
 
   res = dict_lookup(neighbours, sockaddr_t, &peer_fd); 
