@@ -19,19 +19,20 @@
 
 #include "net_helper.h"
 #include "config.h"
+#include "NetHelper/fair.h"
 #include "NetHelper/dictionary.h"
 
 /* -- Internal data types -------------------------------------------- */
 
 typedef struct {
-	int fd;
+    int fd;
     int sendretry;              // Number of retry in sending data
-	dict_t neighbours;
+    dict_t neighbours;
 } local_info_t;
 
 typedef struct nodeID {
-	struct sockaddr_in addr;
-	local_info_t *local;        // non-NULL only for local node
+    struct sockaddr_in addr;
+    local_info_t *local;        // non-NULL only for local node
 } nodeid_t;
 
 /* -- Internal functions --------------------------------------------- */
@@ -56,14 +57,14 @@ static const size_t   ERR_BUFLEN = 64;
 
 struct nodeID *nodeid_dup (struct nodeID *s)
 {
-	/* Local nodeID cannot be duplicated! */
-	assert(s->local == NULL);
+    /* Local nodeID cannot be duplicated! */
+    assert(s->local == NULL);
 
-	nodeid_t *ret = malloc(sizeof(nodeid_t));
+    nodeid_t *ret = malloc(sizeof(nodeid_t));
 
-	if (ret == NULL) return NULL;
-	memcpy(ret, s, sizeof(nodeid_t));
-	return ret;
+    if (ret == NULL) return NULL;
+    memcpy(ret, s, sizeof(nodeid_t));
+    return ret;
 }
 
 /*
@@ -71,62 +72,62 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 */
 int nodeid_cmp (const nodeid_t *s1, const nodeid_t *s2)
 {
-	return memcmp(&s1->addr, &s2->addr, sizeof(struct sockaddr_in));
+    return memcmp(&s1->addr, &s2->addr, sizeof(struct sockaddr_in));
 }
 
 /* @return 1 if the two nodeID are identical or 0 if they are not. */
 int nodeid_equal (const nodeid_t *s1, const nodeid_t *s2)
 {
-	return nodeid_cmp(s1, s2) == 0;
+    return nodeid_cmp(s1, s2) == 0;
 }
 
 struct nodeID *create_node (const char *IPaddr, int port)
 {
-	nodeid_t *ret = malloc(sizeof(nodeid_t));
+    nodeid_t *ret = malloc(sizeof(nodeid_t));
     if (ret == NULL) {
         return NULL;
     }
 
-	ret->addr.sin_family = AF_INET;
-	ret->addr.sin_port = htons(port);
+    ret->addr.sin_family = AF_INET;
+    ret->addr.sin_port = htons(port);
 
-	if (IPaddr == NULL) {
-		/* In case of server, specifying NULL will allow anyone to
-		 * connect. */
-		ret->addr.sin_addr.s_addr = INADDR_ANY;
-	} else if (inet_pton(AF_INET, IPaddr,
-               (void *)&ret->addr.sin_addr) == 0) {
-		fprintf(stderr, "Invalid ip address %s\n", IPaddr);
-		free(ret);
-		return NULL;
-	}
-	return ret;
+    if (IPaddr == NULL) {
+        /* In case of server, specifying NULL will allow anyone to
+         * connect. */
+        ret->addr.sin_addr.s_addr = INADDR_ANY;
+    } else if (inet_pton(AF_INET, IPaddr,
+                         (void *)&ret->addr.sin_addr) == 0) {
+        fprintf(stderr, "Invalid ip address %s\n", IPaddr);
+        free(ret);
+        return NULL;
+    }
+    return ret;
 }
 
 void nodeid_free (struct nodeID *s)
 {
     local_info_t *local = s->local = s->local;
-	if (local != NULL) {
-		dict_delete(local->neighbours);
-		close(local->fd);
-		free(local);
-	}
-	free(s);
+    if (local != NULL) {
+        dict_delete(local->neighbours);
+        close(local->fd);
+        free(local);
+    }
+    free(s);
 }
 
 struct nodeID * net_helper_init (const char *IPaddr, int port,
-				 const char *config)
+                                 const char *config)
 {
-	nodeid_t *this;
-	struct tag *cfg_tags;
+    nodeid_t *this;
+    struct tag *cfg_tags;
     int backlog;
-	int e;
+    int e;
     local_info_t *local;
 
-	this = create_node(IPaddr, port);
-	if (this == NULL) {
-		return NULL;
-	}
+    this = create_node(IPaddr, port);
+    if (this == NULL) {
+        return NULL;
+    }
 
     cfg_tags = NULL;
     if (config) {
@@ -135,30 +136,30 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 
     local = malloc(sizeof(local_info_t));
 
-	if (local == NULL) {
-		nodeid_free(this);
-		free(cfg_tags);
-		return NULL;
-	}
+    if (local == NULL) {
+        nodeid_free(this);
+        free(cfg_tags);
+        return NULL;
+    }
     this->local = local;
 
-	local->neighbours = dict_new(AF_INET, 1, cfg_tags);
+    local->neighbours = dict_new(AF_INET, 1, cfg_tags);
     if (cfg_tags) {
-		config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
-								 DEFAULT_BACKLOG);
+        config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
+                                 DEFAULT_BACKLOG);
         config_value_int_default(cfg_tags, CONF_KEY_SENDRETRY,
                                  &local->sendretry,
                                  DEFAULT_SENDRETRY);
-	}
+    }
 
-	if (tcp_serve(this, backlog, &e) < 0) {
+    if (tcp_serve(this, backlog, &e) < 0) {
         print_err(e, "creating server");
-		nodeid_free(this);
-		return NULL;
-	}
+        nodeid_free(this);
+        return NULL;
+    }
 
-	free(cfg_tags);
-	return this;
+    free(cfg_tags);
+    return this;
 }
 
 void bind_msg_type(uint8_t msgtype) {}
@@ -207,86 +208,87 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
 }
 
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
-				   uint8_t *buffer_ptr, int buffer_size)
+                   uint8_t *buffer_ptr, int buffer_size)
 {
-  int res = -1;
-  int peer_fd;
-  struct sockaddr_in peer_addr;
-  dict_t neighbours;
-  
-  assert(self->local != NULL);
-  neighbours = self->local->neighbours;
-  
-  /* This is what external software using the interface is expecting */
-  *remote = malloc(sizeof(struct nodeID));
-  if (*remote == NULL) {
-    return -1;
-  }  
+    int res = -1;
+    int peer_fd;
+    struct sockaddr_in peer_addr;
+    dict_t neighbours;
 
-  res = fair_select(neighbours, &peer_fd, &peer_addr);
-  if (res < 0)
-    return -1;
+    assert(self->local != NULL);
+    neighbours = self->local->neighbours;
 
-  res = read(peer_fd, buffer_ptr, buffer_size);
-  
-  if (res <= 0) {
-    /* As the socket is in error or EOF has been reached, this
-     * connection must be closed */
-    dict_remove(neighbours, (struct sockaddr *)&peer_addr);
+    /* This is what external software using the interface is expecting */
+    *remote = malloc(sizeof(struct nodeID));
+    if (*remote == NULL) {
+        return -1;
+    }
+
+    res = fair_select(neighbours, &peer_fd, &peer_addr);
+    if (res < 0)
+        return -1;
+
+    res = read(peer_fd, buffer_ptr, buffer_size);
+
+    if (res <= 0) {
+        /* As the socket is in error or EOF has been reached, this
+         * connection must be closed */
+        dict_remove(neighbours, (struct sockaddr *)&peer_addr);
+        return res;
+    }
+
+    memcpy(&(*remote)->addr, &peer_addr, sizeof(struct sockaddr_in));
+
     return res;
-  }
-  
-  memcpy(&(*remote)->addr, &peer_addr, sizeof(struct sockaddr_in));
-  
-  return res;
 }
 
 struct select_helper {
-  fd_set readfds;
-  int max;
+    fd_set readfds;
+    int max;
 };
 
 static
 int scan_fill_set (void *ctx, const struct sockaddr *addr, int fd)
 {
-  struct select_helper *sh = (struct select_helper *) ctx;
-  FD_SET(fd, &sh->readfds);
-  if (fd > sh->max) {
-    sh->max = fd;
-  }
-  return 1;
+    struct select_helper *sh = (struct select_helper *) ctx;
+    FD_SET(fd, &sh->readfds);
+    if (fd > sh->max) {
+        sh->max = fd;
+    }
+    return 1;
 }
 
 int wait4data(const struct nodeID *n, struct timeval *tout,
-	      int *user_fds)
+              int *user_fds)
 {
 }
 
 const char *node_addr(const struct nodeID *s)
 {
-  /* Noy yet developed! */
-  static char addr[256];
-  
-  sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr),
-	  ntohs(s->addr.sin_port));
-  
-  return addr;
+    /* Noy yet developed! */
+    static char addr[256];
+
+    sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr),
+            ntohs(s->addr.sin_port));
+
+    return addr;
 }
 
-struct nodeID *nodeid_undump(const uint8_t *b, int *len) {
-	struct nodeID *res;
-	/* nothing done at the moment! */
-	return res;
+struct nodeID *nodeid_undump(const uint8_t *b, int *len)
+{
+    struct nodeID *res;
+    /* nothing done at the moment! */
+    return res;
 }
 
 int nodeid_dump(uint8_t *b, const struct nodeID *s,
-				size_t max_write_size)
+                size_t max_write_size)
 {
 }
 
 const char *node_ip(const struct nodeID *s)
 {
-	return "";
+    return "";
 }
 
 /* -- Internal functions --------------------------------------------- */
@@ -294,51 +296,51 @@ const char *node_ip(const struct nodeID *s)
 static
 int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e)
 {
-	int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (fd == -1) {
-		if (e) *e = errno;
-		return -1;
-	}
+    if (fd == -1) {
+        if (e) *e = errno;
+        return -1;
+    }
 
-	if (connect(fd, (struct sockaddr *) &to,
-				sizeof(struct sockaddr_in)) == -1) {
-		if (e) *e = errno;
-		close(fd);
-		return -2;
-	}
-	*out_fd = fd;
+    if (connect(fd, (struct sockaddr *) &to,
+                sizeof(struct sockaddr_in)) == -1) {
+        if (e) *e = errno;
+        close(fd);
+        return -2;
+    }
+    *out_fd = fd;
 
-	return 0;
+    return 0;
 }
 
 static
 int tcp_serve (nodeid_t *sd, int backlog, int *e)
 {
-	int fd;
-	assert(sd->local != NULL);  // TODO: remove when it works.
+    int fd;
+    assert(sd->local != NULL);  // TODO: remove when it works.
 
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (fd == -1) {
-		if (e) *e = errno;
-		return -1;
-	}
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == -1) {
+        if (e) *e = errno;
+        return -1;
+    }
 
-	if (bind(fd, (struct sockaddr *) &sd->addr,
-			 sizeof(struct sockaddr_in))) {
-		if (e) *e = errno;
-		close(fd);
-		return -2;
-	}
+    if (bind(fd, (struct sockaddr *) &sd->addr,
+             sizeof(struct sockaddr_in))) {
+        if (e) *e = errno;
+        close(fd);
+        return -2;
+    }
 
-	if (listen(fd, backlog) == -1) {
-		if (e) *e = errno;
-		close(fd);
-		return -3;
-	}
-	sd->local->fd = fd;
+    if (listen(fd, backlog) == -1) {
+        if (e) *e = errno;
+        close(fd);
+        return -3;
+    }
+    sd->local->fd = fd;
 
-	return 0;
+    return 0;
 }
 
 /* perror-like with parametrized error */
