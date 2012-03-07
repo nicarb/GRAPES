@@ -117,6 +117,36 @@ int dict_lookup (dict_t D, const struct sockaddr * addr,
            == DHASH_FOUND ? 0 : -1;
 }
 
+struct lookup_data {
+    int (* make_socket) (void *ctx);
+    void *ctx;
+};
+
+static
+void * build_peer_info (void * param)
+{
+    struct lookup_data *ld = param;
+    peer_info_t * info = malloc(sizeof(peer_info_t));
+
+    assert(info != NULL);
+    info->flags.used = 0;
+    info->fd = ld->make_socket(ld->ctx);
+
+    return (void *)info;
+}
+
+void dict_lookup_default (dict_t D, const struct sockaddr *addr,
+                          peer_info_t *info,
+                          int (* make_socket) (void *ctx), void *ctx)
+{
+    struct lookup_data ld = {
+        .make_socket = make_socket,
+        .ctx = ctx
+    };
+    dhash_search_default(D->ht, (const void *)addr, (void *)&info,
+                         build_peer_info, (void *) &ld);
+}
+
 int dict_insert (dict_t D, const struct sockaddr * addr, int fd)
 {
     peer_info_t info;

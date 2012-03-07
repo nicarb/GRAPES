@@ -80,6 +80,20 @@ size_t dict_size (dict_t D);
 int dict_lookup (dict_t D, const struct sockaddr * addr,
                  peer_info_t *info);
 
+/** Lookup function.
+ *
+ * @param[in] D The dictionary;
+ * @param[in] addr The address to search;
+ * @param[out] fd The file descriptor (valid only if 0 is returned);
+ * @param[in] make_socket The callback to be internally called if no file
+ *                        descriptor has been found;
+ * @param[in] ctx The context for the callback.
+ *
+ */
+void dict_lookup_default (dict_t D, const struct sockaddr *addr,
+                          peer_info_t *info,
+                          int (* make_socket) (void *ctx), void *ctx);
+
 /** Insertion function.
  *
  * Items gets replaced when you overwrite them.
