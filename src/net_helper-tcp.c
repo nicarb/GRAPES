@@ -21,27 +21,38 @@
 #include "config.h"
 #include "NetHelper/dictionary.h"
 
-/* -- Internal functions --------------------------------------------- */
-
-static int tcp_connect (nodeID *sd, int *e);
-static int tcp_serve (nodeID *sd, int backlog, int *e);
-
-/* -- Constants ------------------------------------------------------ */
-
-static const char *   CONF_KEY_BACKLOG = "tcp_backlog";
-static const unsigned DEFAULT_BACKLOG = 50;
-
-/* -- Interface exported symbols ------------------------------------- */
+/* -- Internal data types -------------------------------------------- */
 
 typedef struct {
 	int fd;
+    int sendretry;              // Number of retry in sending data
 	dict_t neighbours;
 } local_info_t;
 
 typedef struct nodeID {
 	struct sockaddr_in addr;
-	local_info_t *local;        // non-NULL only for local node */
+	local_info_t *local;        // non-NULL only for local node
 } nodeid_t;
+
+/* -- Internal functions --------------------------------------------- */
+
+static int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e);
+static int tcp_serve (nodeid_t *sd, int backlog, int *e);
+static void print_err (int e, char *msg);
+static int get_peer (dict_t neighbours, struct sockaddr_in *addr);
+static int would_block (int e);
+static int dead_filedescriptor (int e);
+
+/* -- Constants ------------------------------------------------------ */
+
+static const char *   CONF_KEY_BACKLOG = "tcp_backlog";
+static const unsigned DEFAULT_BACKLOG = 50;
+static const char *   CONF_KEY_SENDRETRY = "tcp_send_retry";
+static const int      DEFAULT_SENDRETRY = 3;
+
+static const size_t   ERR_BUFLEN = 64;
+
+/* -- Interface exported symbols ------------------------------------- */
 
 struct nodeID *nodeid_dup (struct nodeID *s)
 {
@@ -58,20 +69,23 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 /*
 * @return -1, 0 or 1, depending on the relation between  s1 and s2.
 */
-int nodeid_cmp (const struct nodeID *s1, const struct nodeID *s2)
+int nodeid_cmp (const nodeid_t *s1, const nodeid_t *s2)
 {
 	return memcmp(&s1->addr, &s2->addr, sizeof(struct sockaddr_in));
 }
 
 /* @return 1 if the two nodeID are identical or 0 if they are not. */
-int nodeid_equal (const struct nodeID *s1, const struct nodeID *s2)
+int nodeid_equal (const nodeid_t *s1, const nodeid_t *s2)
 {
-	return nodeid_cmp(&s1, &s2) == 0;
+	return nodeid_cmp(s1, s2) == 0;
 }
 
 struct nodeID *create_node (const char *IPaddr, int port)
 {
 	nodeid_t *ret = malloc(sizeof(nodeid_t));
+    if (ret == NULL) {
+        return NULL;
+    }
 
 	ret->addr.sin_family = AF_INET;
 	ret->addr.sin_port = htons(port);
@@ -79,8 +93,9 @@ struct nodeID *create_node (const char *IPaddr, int port)
 	if (IPaddr == NULL) {
 		/* In case of server, specifying NULL will allow anyone to
 		 * connect. */
-		ret->addr.sin_addr = INADDR_ANY;
-	} else if (inet_pton(AF_INET, IPaddr, (void *)&ret->addr.sin_addr) == 0) {
+		ret->addr.sin_addr.s_addr = INADDR_ANY;
+	} else if (inet_pton(AF_INET, IPaddr,
+               (void *)&ret->addr.sin_addr) == 0) {
 		fprintf(stderr, "Invalid ip address %s\n", IPaddr);
 		free(ret);
 		return NULL;
@@ -88,54 +103,61 @@ struct nodeID *create_node (const char *IPaddr, int port)
 	return ret;
 }
 
-/* 
- */
 void nodeid_free (struct nodeID *s)
 {
-	if (s->local != NULL) {
-		/* TODO: dictionary delete should close also internal file
-		 * descriptors */
-		dict_delete(s->local.neighbours);
-		close(s->local.fd);
-		free(s->local);
+    local_info_t *local = s->local = s->local;
+	if (local != NULL) {
+		dict_delete(local->neighbours);
+		close(local->fd);
+		free(local);
 	}
 	free(s);
 }
 
-/* 
- */
 struct nodeID * net_helper_init (const char *IPaddr, int port,
 				 const char *config)
 {
 	nodeid_t *this;
-	struct tag *cfg_tags = NULL;
+	struct tag *cfg_tags;
+    int backlog;
 	int e;
+    local_info_t *local;
 
 	this = create_node(IPaddr, port);
 	if (this == NULL) {
 		return NULL;
 	}
 
-	if (config && (cfg_tags = config_parse(config))) {
-		config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
-								 DEFAULT_BACKLOG);
-	}
+    cfg_tags = NULL;
+    if (config) {
+        cfg_tags = config_parse(config);
+    }
 
-	if ((this->local = malloc(sizeof(local_info_t))) == NULL) {
+    local = malloc(sizeof(local_info_t));
+
+	if (local == NULL) {
 		nodeid_free(this);
 		free(cfg_tags);
 		return NULL;
 	}
-	this->local.neighbours = dict_new(AF_INET, cfg_tags);
-	free(cfg_tags);
+    this->local = local;
 
-	if (tcp_serve(&this, backlog, &e) < 0) {
-		fprintf(stderr, "net-helper: creating server errno %d: %s\n", e,
-				strerror(e));
+	local->neighbours = dict_new(AF_INET, 1, cfg_tags);
+    if (cfg_tags) {
+		config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
+								 DEFAULT_BACKLOG);
+        config_value_int_default(cfg_tags, CONF_KEY_SENDRETRY,
+                                 &local->sendretry,
+                                 DEFAULT_SENDRETRY);
+	}
+
+	if (tcp_serve(this, backlog, &e) < 0) {
+        print_err(e, "creating server");
 		nodeid_free(this);
 		return NULL;
 	}
 
+	free(cfg_tags);
 	return this;
 }
 
@@ -144,75 +166,44 @@ void bind_msg_type(uint8_t msgtype) {}
 /*
  */
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
-		 const uint8_t *buffer_ptr, int buffer_size)
+                 const uint8_t *buffer_ptr, int buffer_size)
 {
-  int check, errno;
-  int res = -1;
-  dict_t neighbours;
-  peer_info_t *pfd;
+    int err;
+    int peer_fd;
 
-  assert(from->local != NULL);    // FIXME: is "from" the self node?
-  neighbours = from->local->neighbours;
-  
-  if (dict_lookup(neighbours, &to->addr, &pfd) == -1) {
-    /* TODO: here connect + insert into hash table the obtained
-     * file-descriptor.
-     * Is this good? Should we be aware of something here? */
-    if (pfd == NULL) {
-      fprintf(stderr, "net-helper-tcp: Error on lookup dictionary: peer_info of %d is not valid.\n",
-	      to->fd);
-      return -1;
+    if (buffer_size <= 0) {
+        return 0;
     }
-    if (pfd->flags->used == 1) {      
-      fprintf(stderr, "net-helper-tcp: Error on lookup dictionary: peer-fd has been used %d.\n",
-	      pfd->flags->used);
-      return -2;
+
+    local_info_t *local = from->local;
+    assert(local != NULL);          // TODO: remove after testing
+    assert(to->local == NULL);      // TODO: ditto
+
+    peer_fd = get_peer(local->neighbours, &to->addr);
+    if (peer_fd == -1) {
+        return -1;
     }
-    res = tcp_connect (to,&errno);
-    if (res < 0) {
-      fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n",
-	      to->fd);
-      return res;
+
+    int retry = local->sendretry;
+    ssize_t sent = 0;
+    while (retry && buffer_size > 0) {
+        ssize_t n = send(peer_fd, buffer_ptr, buffer_size, MSG_DONTWAIT);
+        if (n <= 0) {
+            if (would_block(errno)) {
+                retry --;
+            } else if (dead_filedescriptor(errno)) {
+                dict_remove(local->neighbours, (struct sockaddr *)&to->addr);
+                retry = 0;
+                if (sent == 0) sent = -1;
+            }
+        } else {
+            buffer_ptr += n;
+            sent += n;
+            buffer_size -= n;
+        }
     }
-  }
-  
-  /* TODO: then we can go with transmission */
-  //#if 0
-  if (to->fd > 0) {
-    res = write(to->fd, &buffer_ptr, buffer_size);
-  } else {
-    fprintf(stderr, "net-helper-tcp: send_to_peer failed. Uncorrect file descriptor: %d.\n",
-	    to->fd);
-  }
-  
-  if (res  < 0) {
-    int error = errno;
-    fprintf(stderr,"net-helper-tcp: sendmsg failed errno %d: %s\n",
-	    error, strerror(error));
-  }
-  //#endif
-    
-  return res;
-}
 
-/* Fair select of the receiving peer
- * 
- * @param[in] hash The hash table;
- * @param[out] fd  The file descriptor of the peer which sent the
- *                 data;
- * @param[out] addr The corresponding address.
- */
-int fair_select(dick_t *neighbours,  *pfd, sockaddr_t *peer_addr) {
-  int res = -1;
-
-  res = dict_lookup(neighbours, sockaddr_t, &peer_fd); 
-  //TODO: implementing the fair_select ausiliary structure
-
-  if (res < 0) {
-    fprintf(stderr,"The inserted value does not exist.\n");
-  }
-
-  return res;
+    return sent;
 }
 
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
@@ -221,7 +212,7 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
   int res = -1;
   int peer_fd;
   struct sockaddr_in peer_addr;
-  dict_t neigbors;
+  dict_t neighbours;
   
   assert(self->local != NULL);
   neighbours = self->local->neighbours;
@@ -241,12 +232,11 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
   if (res <= 0) {
     /* As the socket is in error or EOF has been reached, this
      * connection must be closed */
-    dict_remove(neighbours, &peer_addr);
+    dict_remove(neighbours, (struct sockaddr *)&peer_addr);
     return res;
   }
   
-  memcpy(&(*remote)->addr, &raddr, msg.msg_namelen);
-  (*remote)->fd = -1;
+  memcpy(&(*remote)->addr, &peer_addr, sizeof(struct sockaddr_in));
   
   return res;
 }
@@ -267,56 +257,9 @@ int scan_fill_set (void *ctx, const struct sockaddr *addr, int fd)
   return 1;
 }
 
-/* Behaves in a way which is compatible with the `wait4data` function
- * provided by the UDP version */
 int wait4data(const struct nodeID *n, struct timeval *tout,
 	      int *user_fds)
 {
-  dict_t neighbours = n->local->neighbours;
-  int res;
-  struct select_helper sh;
-  int res;
-  
-  /* We start with the file neighbours descriptors */
-  
-  FD_ZERO(&sh.readfds);
-  sh.max = -1;
-  dict_scan(neighbours, scan_fill_set, (void *)&sh);
-  
-  res = select(sh.max, &sh.readfds, NULL, NULL, tout);
-  if (res < 0) {
-    return res;         // We had an error.
-  } else if (res > 0) {
-    return 1;           // Incoming data from neighbours;
-  }
-  
-  if (user_fds == NULL) {
-    return 0;           // No incoming data and no user_fds to check
-  }
-  
-  /* There may be some user file descriptors waiting. Starting again on
-	 * user_fds */
-  
-  FD_ZERO(&sh.readfds);
-  sh.max = -1;
-  for (i = 0; user_fds[i] != -1; i++) {
-    FD_SET(user_fds[i], &sh.readfds);
-    if (user_fds[i] > sh.max) {
-      sh.max = user_fds[i];
-    }
-  }
-  res = select(sh.max, &sh.readfds, NULL, NULL, tout);
-  if (res <= 0) {
-    return res;
-  }
-  
-  for (i = 0; user_fds[i] != -1; i++) {
-    if (!FD_ISSET(user_fds[i], &fds)) {
-      user_fds[i] = -2;
-    }
-  }
-  
-  return 2;
 }
 
 const char *node_addr(const struct nodeID *s)
@@ -347,46 +290,35 @@ const char *node_ip(const struct nodeID *s)
 }
 
 /* -- Internal functions --------------------------------------------- */
-/* 
- */
+
 static
-int tcp_connect (nodeID *sd, int *e)
+int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e)
 {
-	int fd;
-	/* TODO: here modify to support hash picking. It won't work till then. */
-
-	if (sd->fd != -1) {
-		/* Already connected */
-		return 0;
-	}
-
-	fd = socket(AF_INET, SOCK_STREAM, 0);
+	int fd = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (fd == -1) {
 		if (e) *e = errno;
 		return -1;
 	}
 
-	if (connect(fd, (struct sockaddr *) &sd->addr,
+	if (connect(fd, (struct sockaddr *) &to,
 				sizeof(struct sockaddr_in)) == -1) {
 		if (e) *e = errno;
 		close(fd);
 		return -2;
 	}
-	sd->fd = fd;
+	*out_fd = fd;
 
 	return 0;
 }
 
-/* 
- */
 static
-int tcp_serve (nodeID *sd, int backlog, int *e)
+int tcp_serve (nodeid_t *sd, int backlog, int *e)
 {
 	int fd;
 	assert(sd->local != NULL);  // TODO: remove when it works.
 
-	fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+	fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1) {
 		if (e) *e = errno;
 		return -1;
@@ -408,4 +340,55 @@ int tcp_serve (nodeID *sd, int backlog, int *e)
 
 	return 0;
 }
+
+/* perror-like with parametrized error */
+static
+void print_err (int e, char *msg)
+{
+    char buf[ERR_BUFLEN];
+    strerror_r(e, buf, ERR_BUFLEN);
+    if (msg) {
+        fprintf(stderr, "net-helper-tcp: %s: %s\n", msg, buf);
+    } else {
+        fprintf(stderr, "net_helper-tcp: %s\n", buf);
+    }
+}
+
+/* TODO: this can be optimized using new features for dictionaries */
+static
+int get_peer (dict_t neighbours, struct sockaddr_in *addr)
+{
+    peer_info_t peer;
+
+    if (dict_lookup(neighbours, (struct sockaddr *) addr, &peer) == -1) {
+        /* We don't have the address stored, thus we need to connect */
+
+        int err;
+        if (tcp_connect((struct sockaddr_in *)&addr, &peer.fd,
+                        &err) == -1) {
+            print_err(err, "connecting to peer");
+            return -1;
+        }
+
+        dict_insert(neighbours, (struct sockaddr *) &addr, peer.fd);
+    }
+
+    return peer.fd;
+}
+
+static inline
+int would_block (int e)
+{
+    return e == EAGAIN||
+           e == EWOULDBLOCK;
+}
+
+static inline
+int dead_filedescriptor (int e)
+{
+    return e == ECONNRESET ||
+           e == EBADF ||
+           e == ENOTCONN;
+}
+
 
