@@ -32,7 +32,11 @@ typedef struct {
 
 typedef struct nodeID {
     struct sockaddr_in addr;
-    local_info_t *local;        // non-NULL only for local node
+    struct {
+        char ip[INET_ADDRSTRLEN];           // ip address
+        char ip_port[INET_ADDRSTRLEN + 6];  // ip:port 2^16 -> 5 cyphers.
+    } repr;                         // reentrant string representations
+    local_info_t *local;            // non-NULL only for local node
 } nodeid_t;
 
 /* -- Internal functions --------------------------------------------- */
@@ -101,6 +105,11 @@ struct nodeID *create_node (const char *IPaddr, int port)
         free(ret);
         return NULL;
     }
+
+    /* Representations */
+    strcpy(ret->repr.ip, IPaddr);
+    sprintf(ret->repr.ip_port, "%s:%hu", IPaddr, (uint16_t)port);
+
     return ret;
 }
 
@@ -164,8 +173,6 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 
 void bind_msg_type(uint8_t msgtype) {}
 
-/*
- */
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
@@ -210,6 +217,7 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
+#if 0
     int res = -1;
     int peer_fd;
     struct sockaddr_in peer_addr;
@@ -240,6 +248,7 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
     memcpy(&(*remote)->addr, &peer_addr, sizeof(struct sockaddr_in));
 
     return res;
+#endif
 }
 
 struct select_helper {
@@ -247,48 +256,49 @@ struct select_helper {
     int max;
 };
 
-static
-int scan_fill_set (void *ctx, const struct sockaddr *addr, int fd)
-{
-    struct select_helper *sh = (struct select_helper *) ctx;
-    FD_SET(fd, &sh->readfds);
-    if (fd > sh->max) {
-        sh->max = fd;
-    }
-    return 1;
-}
-
 int wait4data(const struct nodeID *n, struct timeval *tout,
               int *user_fds)
 {
 }
 
-const char *node_addr(const struct nodeID *s)
+struct nodeID *nodeid_undump (const uint8_t *b, int *len)
 {
-    /* Noy yet developed! */
-    static char addr[256];
+    nodeid_t *ret = malloc(sizeof(nodeid_t));
+    if (ret == NULL) {
+        return NULL;
+    }
 
-    sprintf(addr, "%s:%d", inet_ntoa(s->addr.sin_addr),
-            ntohs(s->addr.sin_port));
+    memcpy((void *)&ret->addr, (const void *)b,
+            sizeof(struct sockaddr_in));
+    inet_ntop(AF_INET, (const void *)b, ret->repr.ip,
+              sizeof(struct sockaddr_in));
+    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
+            ret->addr.sin_port);
+    ret->local = NULL;
 
-    return addr;
+    return ret;
 }
 
-struct nodeID *nodeid_undump(const uint8_t *b, int *len)
+int nodeid_dump (uint8_t *b, const struct nodeID *s,
+                 size_t max_write_size)
 {
-    struct nodeID *res;
-    /* nothing done at the moment! */
-    return res;
-}
+    assert(s->local == NULL);   // TODO: remove after testing
 
-int nodeid_dump(uint8_t *b, const struct nodeID *s,
-                size_t max_write_size)
-{
+    if (max_write_size < sizeof(struct sockaddr_in)) {
+        return -1;
+    }
+    memcpy((void *)b, (const void *)&s->addr, sizeof(struct sockaddr_in));
+    return sizeof(struct sockaddr_in);
 }
 
 const char *node_ip(const struct nodeID *s)
 {
-    return "";
+    return s->repr.ip;
+}
+
+const char *node_addr (const struct nodeID *s)
+{
+    return s->repr.ip_port;
 }
 
 /* -- Internal functions --------------------------------------------- */
