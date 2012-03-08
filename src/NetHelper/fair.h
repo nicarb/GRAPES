@@ -35,14 +35,14 @@
  * @param[out] e Pointer where errno will be stored in case of select(2)
  *               failure (you may pass NULL).
  *
- * @retval 2 If no neighbour is willing to send and the select(2) unlocked
- *           thanks to some other fd provided through the `fdset` paramter
- *           (the `conn` output parameter must be considered invalid);
- * @retval 1 if there's a node ready for reading (the `conn` parameter
- *           will contain references to the neighbor);
- * @retval 0 if there's not such a node (the `conn` output parameter must
- *           be considered invalid);
- * @retval -1 On select error.
+ * @retval 1 if either there's a node ready for reading (the `conn`
+ *           parameter will contain references to the neighbor) or an
+ *           external file descriptor is ready;
+ * @retval 0 On timeout (the `conn` output parameter must be considered
+ *           invalid);
+ * @retval -1 On select error (the `conn` output parameter must be
+ *            considered invalid).
+ *
  */
 int fair_select(dict_t neighbours, struct timeval *timeout,
                 fd_set *fdset, int maxfd, connection_t *conn, int *e);
