@@ -28,6 +28,8 @@ typedef struct {
     int fd;
     int sendretry;              // Number of retry in sending data
     dict_t neighbours;
+    connection_t cached_peer;   // Cached during wait4data, used in
+                                // recv_from_peer
 } local_info_t;
 
 typedef struct nodeID {
@@ -251,14 +253,49 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 #endif
 }
 
-struct select_helper {
-    fd_set readfds;
-    int max;
-};
-
-int wait4data(const struct nodeID *n, struct timeval *tout,
+int wait4data(const struct nodeID *self, struct timeval *tout,
               int *user_fds)
 {
+    fd_set fdset;
+    int maxfd;
+    int err;
+    int i;
+
+    assert(self->local != NULL);        // TODO: remove after testing
+
+    local_info_t *local = self->local;
+
+    FD_ZERO(&fdset);
+    maxfd = -1;
+
+    if (user_fds != NULL) {
+        for (i = 0; user_fds[i] != -1; i++) {
+            FD_SET(user_fds[i], &fdset);
+            if (user_fds[i] > maxfd) {
+                maxfd = user_fds[i];
+            }
+        }
+    }
+
+    switch (fair_select(local->neighbours, tout, &fdset, maxfd + 1,
+                        &local->cached_peer, &err)) {
+        case 0:
+            return 0;
+        case -1:
+            print_err(err, "wait4data");
+            return -1;
+        default:
+            if (local->cached_peer.fd == -1) {
+                /* Externally provided file descriptor unlocked select */
+                for (i = 0; user_fds[i] != -1; i++) {
+                    if (!FD_ISSET(user_fds[i], &fdset)) {
+                        user_fds[i] = -2;
+                    }
+                }
+                return 2;
+            }
+            return 1;
+    }
 }
 
 struct nodeID *nodeid_undump (const uint8_t *b, int *len)
