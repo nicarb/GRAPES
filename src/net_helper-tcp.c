@@ -219,38 +219,42 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
-#if 0
-    int res = -1;
-    int peer_fd;
-    struct sockaddr_in peer_addr;
-    dict_t neighbours;
+    assert(self->local != NULL);        // TODO: remove after testing
+    local_info_t *local = self->local;
+    connection_t *peer = &local->cached_peer;
+    int retval;
 
-    assert(self->local != NULL);
-    neighbours = self->local->neighbours;
+    if (peer->fd == -1) {
+        int err;
+        fd_set fds;
 
-    /* This is what external software using the interface is expecting */
-    *remote = malloc(sizeof(struct nodeID));
-    if (*remote == NULL) {
-        return -1;
+        /* No cache from wait4data */
+        FD_ZERO(&fds);
+        if (fair_select(local->neighbours, NULL, &fds, 0,
+                        peer, &err) == -1) {
+            print_err(err, "recv select");
+        }
     }
 
-    res = fair_select(neighbours, &peer_fd, &peer_addr);
-    if (res < 0)
-        return -1;
+    retval = buffer_size;
+    while (retval > 0 && buffer_size > 0) {
+        ssize_t n;
 
-    res = read(peer_fd, buffer_ptr, buffer_size);
-
-    if (res <= 0) {
-        /* As the socket is in error or EOF has been reached, this
-         * connection must be closed */
-        dict_remove(neighbours, (struct sockaddr *)&peer_addr);
-        return res;
+        switch (n = recv(peer->fd, buffer_ptr, buffer_size, 0)) {
+            case -1:
+                print_err(errno, "receiving");
+            case 0:
+                dict_remove(local->neighbours, peer->addr);
+                retval = -1;
+                break;
+            default:
+                buffer_size -= n;
+                buffer_ptr += n;
+        }
     }
 
-    memcpy(&(*remote)->addr, &peer_addr, sizeof(struct sockaddr_in));
-
-    return res;
-#endif
+    peer->fd = -1;
+    return retval;
 }
 
 int wait4data(const struct nodeID *self, struct timeval *tout,
@@ -282,7 +286,7 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
         case 0:
             return 0;
         case -1:
-            print_err(err, "wait4data");
+            print_err(err, "wait4data select");
             return -1;
         default:
             if (local->cached_peer.fd == -1) {
