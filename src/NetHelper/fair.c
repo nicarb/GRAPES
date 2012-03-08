@@ -127,7 +127,6 @@ int fair_select(dict_t neighbours, struct timeval *timeout,
         }
     };
     pfd.result->fd = -1;
-    pfd.result->addr = NULL;
     dict_scan(neighbours, scan_pick_fair, (void *) &pfd);
 
     return 1;
