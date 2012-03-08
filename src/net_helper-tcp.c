@@ -45,7 +45,7 @@ typedef struct nodeID {
 
 static int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e);
 static int tcp_serve (nodeid_t *sd, int backlog, int *e);
-static void print_err (int e, char *msg);
+static void print_err (int e, const char *msg);
 static int get_peer (dict_t neighbours, struct sockaddr_in *addr);
 static int would_block (int e);
 static int dead_filedescriptor (int e);
@@ -63,10 +63,11 @@ static const size_t   ERR_BUFLEN = 64;
 
 struct nodeID *nodeid_dup (struct nodeID *s)
 {
+    nodeid_t *ret;
+
     /* Local nodeID cannot be duplicated! */
     assert(s->local == NULL);
-
-    nodeid_t *ret = malloc(sizeof(nodeid_t));
+    ret = malloc(sizeof(nodeid_t));
 
     if (ret == NULL) return NULL;
     memcpy(ret, s, sizeof(nodeid_t));
@@ -181,14 +182,16 @@ void bind_msg_type(uint8_t msgtype) {}
 int send_to_peer(const struct nodeID *from, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
-    int err;
+    int retry;
+    ssize_t sent;
     int peer_fd;
+    local_info_t *local;
 
     if (buffer_size <= 0) {
         return 0;
     }
 
-    local_info_t *local = from->local;
+    local = from->local;
     assert(local != NULL);          // TODO: remove after testing
     assert(to->local == NULL);      // TODO: ditto
 
@@ -197,8 +200,8 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
         return -1;
     }
 
-    int retry = local->sendretry;
-    ssize_t sent = 0;
+    retry = local->sendretry;
+    sent = 0;
     while (retry && buffer_size > 0) {
         ssize_t n = send(peer_fd, buffer_ptr, buffer_size, MSG_DONTWAIT);
         if (n <= 0) {
@@ -222,11 +225,13 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
-    assert(self->local != NULL);        // TODO: remove after testing
-    local_info_t *local = self->local;
-    connection_t *peer = &local->cached_peer;
+    local_info_t *local;
+    connection_t *peer;
     int retval;
 
+    assert(self->local != NULL);        // TODO: remove after testing
+    local = self->local;
+    peer = &local->cached_peer;
     if (peer->fd == -1) {
         int err;
         fd_set fds;
@@ -267,11 +272,9 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
     int maxfd;
     int err;
     int i;
-
-    assert(self->local != NULL);        // TODO: remove after testing
-
     local_info_t *local = self->local;
 
+    assert(local != NULL);        // TODO: remove after testing
     FD_ZERO(&fdset);
     maxfd = -1;
 
@@ -399,7 +402,7 @@ int tcp_serve (nodeid_t *sd, int backlog, int *e)
 
 /* perror-like with parametrized error */
 static
-void print_err (int e, char *msg)
+void print_err (int e, const char *msg)
 {
     char buf[ERR_BUFLEN];
     strerror_r(e, buf, ERR_BUFLEN);
