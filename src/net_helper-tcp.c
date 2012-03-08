@@ -129,14 +129,14 @@ void nodeid_free (struct nodeID *s)
 struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  const char *config)
 {
-    nodeid_t *this;
+    nodeid_t *self;
     struct tag *cfg_tags;
     int backlog;
     int e;
     local_info_t *local;
 
-    this = create_node(IPaddr, port);
-    if (this == NULL) {
+    self = create_node(IPaddr, port);
+    if (self == NULL) {
         return NULL;
     }
 
@@ -145,16 +145,17 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
         cfg_tags = config_parse(config);
     }
 
-    local = malloc(sizeof(local_info_t));
-
+    self->local = local = malloc(sizeof(local_info_t));
     if (local == NULL) {
-        nodeid_free(this);
+        nodeid_free(self);
         free(cfg_tags);
         return NULL;
     }
-    this->local = local;
 
     local->neighbours = dict_new(AF_INET, 1, cfg_tags);
+
+    local->sendretry = DEFAULT_SENDRETRY;
+    backlog = DEFAULT_BACKLOG;
     if (cfg_tags) {
         config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
                                  DEFAULT_BACKLOG);
@@ -163,14 +164,16 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  DEFAULT_SENDRETRY);
     }
 
-    if (tcp_serve(this, backlog, &e) < 0) {
+    if (tcp_serve(self, backlog, &e) < 0) {
         print_err(e, "creating server");
-        nodeid_free(this);
+        nodeid_free(self);
         return NULL;
     }
 
+    local->cached_peer.fd = -1;
+
     free(cfg_tags);
-    return this;
+    return self;
 }
 
 void bind_msg_type(uint8_t msgtype) {}
