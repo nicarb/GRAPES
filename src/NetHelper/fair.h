@@ -36,7 +36,7 @@
  *               failure (you may pass NULL).
  *
  * @retval 1 if either there's a node ready for reading (the `conn`
- *           parameter will contain references to the neighbor) or an
+ *           parameter will contain references to the neighbour) or an
  *           external file descriptor is ready;
  * @retval 0 On timeout (the `conn` output parameter must be considered
  *           invalid);
