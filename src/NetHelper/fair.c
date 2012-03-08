@@ -7,7 +7,6 @@
 
 #include "fair.h"
 
-#include <sys/select.h>
 #include <errno.h>
 
 struct fill_fd_set_data {
@@ -24,24 +23,21 @@ dict_scanact_t scan_fill_fd_set (void *ctx, const struct sockaddr *addr,
      * into the file descriptors set. Also collecting the maximum of them
      * (used by select(2)) and count how much file descriptors have never
      * been used */
-    struct fill_fd_set_data *sh = ctx;
+    struct fill_fd_set_data *ffsd = ctx;
 
-    FD_SET(info->fd, sh->readfds);
-    if (info->fd > sh->maxfd) {
-        sh->maxfd = info->fd;
+    FD_SET(info->fd, ffsd->readfds);
+    if (info->fd > ffsd->maxfd) {
+        ffsd->maxfd = info->fd;
     }
     if (!info->flags.used) {
-        sh->count_unused ++;
+        ffsd->count_unused ++;
     }
     return DICT_SCAN_CONTINUE;
 }
 
 struct pick_fair_data {
     fd_set *readfds;
-    struct {
-        int fd;                 // Result fd
-        const struct sockaddr *addr;  // Result address
-    } result;
+    connection_t *result;
     struct {
         unsigned flip : 1;      // Search logic flipped (i.e. all used once)
         unsigned backup : 1;    // Some already used node can be read
@@ -52,9 +48,10 @@ static
 dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
                                peer_info_t *info)
 {
-    struct pick_fair_data *pf = ctx;
+    struct pick_fair_data *pfd = ctx;
+    connection_t *result = pfd->result;
 
-    if (pf->flags.flip) {
+    if (pfd->flags.flip) {
 
         /* In flipped logic we select the very first file descriptor (any
          * would do fine), then we continue the iteration setting
@@ -64,10 +61,10 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
          * unused", by construction there must be a node willing to
          * transmit (otherwise we would be still locked on select(2)).
          */
-        if (pf->result.fd == -1 && FD_ISSET(info->fd, pf->readfds)) {
+        if (result->fd == -1 && FD_ISSET(info->fd, pfd->readfds)) {
             /* First one. We'll use this, so we won't set it unused. */
-            pf->result.fd = info->fd;
-            pf->result.addr = addr;
+            result->fd = info->fd;
+            result->addr = addr;
         } else {
             info->flags.used = 0;
         }
@@ -81,20 +78,20 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
 
         if (info->flags.used) {
 
-            if (!pf->flags.backup && FD_ISSET(info->fd, pf->readfds)) {
+            if (!pfd->flags.backup && FD_ISSET(info->fd, pfd->readfds)) {
                 /* We have our backup plan */
-                pf->flags.backup = 1;
-                pf->result.fd = info->fd;
-                pf->result.addr = addr;
+                pfd->flags.backup = 1;
+                result->fd = info->fd;
+                result->addr = addr;
             }
             return DICT_SCAN_CONTINUE;
 
         } else {
 
-            if (FD_ISSET(info->fd, pf->readfds)) {
+            if (FD_ISSET(info->fd, pfd->readfds)) {
                 /* We found our never-used peer */
-                pf->result.fd = info->fd;
-                pf->result.addr = addr;
+                result->fd = info->fd;
+                result->addr = addr;
             }
             return DICT_SCAN_STOP;
 
@@ -103,46 +100,35 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
     }
 }
 
-int fair_select(dict_t neighbours, int *peer_fd,
-                const struct sockaddr **peer_addr,
-                struct timeval *wait, int *e)
+int fair_select(dict_t neighbours, struct timeval *timeout,
+                fd_set *fdset, int maxfd, connection_t *conn, int *e)
 {
-    fd_set readfds;
     int ret;
 
-    struct fill_fd_set_data sh = {
-        .readfds = &readfds,
-        .maxfd = -1,
+    struct fill_fd_set_data ffsd = {
+        .readfds = fdset,
+        .maxfd = maxfd - 1,
         .count_unused = 0
     };
 
-    *peer_addr = NULL;  // TODO: remove after testing
-
-    dict_scan(neighbours, scan_fill_fd_set, (void *) &sh);
-    ret = select(sh.maxfd + 1, &readfds, NULL, NULL, wait);
+    dict_scan(neighbours, scan_fill_fd_set, (void *) &ffsd);
+    ret = select(ffsd.maxfd + 1, fdset, NULL, NULL, timeout);
     if (ret <= 0) {
         /* On timeout and error */
         if (e) *e = errno;
         return ret;
     }
 
-    struct pick_fair_data pf = {
-        .readfds = &readfds,
-        .result = {
-            .fd = -1
-        },
+    struct pick_fair_data pfd = {
+        .readfds = fdset,
         .flags = {
-            .flip = !sh.count_unused,
+            .flip = !ffsd.count_unused,
             .backup = 0
         }
     };
-
-    dict_scan(neighbours, scan_pick_fair, (void *) &pf);
-
-    assert(pf.result.fd != -1);     // TODO: remove after testing
-
-    *peer_fd = pf.result.fd;
-    *peer_addr = pf.result.addr;
+    pfd.result->fd = -1;
+    pfd.result->addr = NULL;
+    dict_scan(neighbours, scan_pick_fair, (void *) &pfd);
 
     return 1;
 }
