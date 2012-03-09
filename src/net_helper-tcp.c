@@ -99,9 +99,12 @@ struct nodeID *create_node (const char *IPaddr, int port)
         return NULL;
     }
 
+    /* Initialization of address */
+    memset(&ret->addr, 0, sizeof(struct sockaddr_in));
     ret->addr.sin_family = AF_INET;
     ret->addr.sin_port = htons(port);
 
+    /* Initialization of string representation */
     if (IPaddr == NULL) {
         /* In case of server, specifying NULL will allow anyone to
          * connect. */
@@ -118,6 +121,10 @@ struct nodeID *create_node (const char *IPaddr, int port)
         strcpy(ret->repr.ip, IPaddr);
     }
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
+
+    /* The `local` pointer must be NULL for all instances except for an
+     * instance initializated through `net_helper_init` */
+    ret->local = NULL;
 
     return ret;
 }
@@ -147,22 +154,21 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
         return NULL;
     }
 
+    self->local = local = malloc(sizeof(local_info_t));
+    if (local == NULL) {
+        nodeid_free(self);
+        return NULL;
+    }
+
+    /* Default settings */
+    local->sendretry = DEFAULT_SENDRETRY;
+    backlog = DEFAULT_BACKLOG;
+
+    /* Reading settings */
     cfg_tags = NULL;
     if (config) {
         cfg_tags = config_parse(config);
     }
-
-    self->local = local = malloc(sizeof(local_info_t));
-    if (local == NULL) {
-        nodeid_free(self);
-        free(cfg_tags);
-        return NULL;
-    }
-
-    local->neighbours = dict_new(AF_INET, 1, cfg_tags);
-
-    local->sendretry = DEFAULT_SENDRETRY;
-    backlog = DEFAULT_BACKLOG;
     if (cfg_tags) {
         config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
                                  DEFAULT_BACKLOG);
@@ -170,6 +176,8 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  &local->sendretry,
                                  DEFAULT_SENDRETRY);
     }
+    local->neighbours = dict_new(AF_INET, 1, cfg_tags);
+    free(cfg_tags);
 
     if (tcp_serve(self, backlog, &e) < 0) {
         print_err(e, "creating server");
@@ -177,9 +185,9 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
         return NULL;
     }
 
+    /* Remaining part of the initialization: */
     local->cached_peer.fd = -1;
 
-    free(cfg_tags);
     return self;
 }
 
