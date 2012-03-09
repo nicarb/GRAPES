@@ -196,7 +196,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 
     /* Remaining part of the initialization: */
     local->cached_peer.fd = -1;
-    local->refcount = 0;
+    local->refcount = 1;
 
     return self;
 }
