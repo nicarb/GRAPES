@@ -1,4 +1,4 @@
-\/*
+/*
  *  Copyright (c) 2010 Luca Abeni
  *  Copyright (c) 2010 Csaba Kiraly
  *
