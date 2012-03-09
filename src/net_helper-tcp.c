@@ -45,6 +45,7 @@ typedef struct nodeID {
 
 static int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e);
 static int tcp_serve (nodeid_t *sd, int backlog, int *e);
+static int tcp_accept (const nodeid_t *sd);
 static void print_err (int e, const char *msg);
 static int get_peer (dict_t neighbours, struct sockaddr_in *addr);
 static int would_block (int e);
@@ -184,7 +185,8 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 
 void bind_msg_type(uint8_t msgtype) {}
 
-int send_to_peer(const struct nodeID *from, struct nodeID *to,
+/* TODO: Ask fix for the constantness of first parameter this? */
+int send_to_peer(const struct nodeID *self, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
     int retry;
@@ -196,10 +198,11 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
         return 0;
     }
 
-    local = from->local;
+    local = self->local;
     assert(local != NULL);          // TODO: remove after testing
     assert(to->local == NULL);      // TODO: ditto
 
+    tcp_accept(self);
     peer_fd = get_peer(local->neighbours, &to->addr);
     if (peer_fd == -1) {
         return -1;
@@ -243,6 +246,7 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 
         /* No cache from wait4data */
         FD_ZERO(&fds);
+        tcp_accept(self);
         if (fair_select(local->neighbours, NULL, &fds, 0,
                         peer, &err) == -1) {
             print_err(err, "recv select");
@@ -297,6 +301,7 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
         }
     }
 
+    tcp_accept(self);
     switch (fair_select(local->neighbours, tout, &fdset, maxfd + 1,
                         &local->cached_peer, &err)) {
         case 0:
@@ -387,7 +392,7 @@ int tcp_serve (nodeid_t *sd, int backlog, int *e)
     int fd;
     assert(sd->local != NULL);  // TODO: remove when it works.
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd == -1) {
         if (e) *e = errno;
         return -1;
@@ -406,6 +411,30 @@ int tcp_serve (nodeid_t *sd, int backlog, int *e)
         return -3;
     }
     sd->local->fd = fd;
+
+    return 0;
+}
+
+static
+int tcp_accept (const nodeid_t *sd)
+{
+    struct sockaddr_in incoming;
+    socklen_t len;
+    int clifd;
+
+    assert(sd->local != NULL);
+
+    len = sizeof(struct sockaddr_in);
+    while ((clifd = accept(sd->local->fd, (struct sockaddr *)&incoming,
+                           &len)) != -1) {
+        dict_insert(sd->local->neighbours,
+                    (const struct sockaddr *)&incoming, clifd);
+        len = sizeof(struct sockaddr_in);
+    }
+    if (!would_block(errno)) {
+        print_err(errno, "accepting");
+        return -1;
+    }
 
     return 0;
 }
