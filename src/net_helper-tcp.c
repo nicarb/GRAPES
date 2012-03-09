@@ -30,6 +30,8 @@ typedef struct {
     dict_t neighbours;
     connection_t cached_peer;   // Cached during wait4data, used in
                                 // recv_from_peer
+    unsigned refcount;          // Reference counter (workaround for node
+                                // copying).
 } local_info_t;
 
 typedef struct nodeID {
@@ -45,6 +47,7 @@ typedef struct nodeID {
 
 static int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e);
 static int tcp_serve (nodeid_t *sd, int backlog, int *e);
+static int tcp_accept (const nodeid_t *sd);
 static void print_err (int e, const char *msg);
 static int get_peer (dict_t neighbours, struct sockaddr_in *addr);
 static int would_block (int e);
@@ -66,12 +69,17 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 {
     nodeid_t *ret;
 
-    /* Local nodeID cannot be duplicated! */
-    assert(s->local == NULL);
-    ret = malloc(sizeof(nodeid_t));
+    if (s->local == NULL) {
+        ret = malloc(sizeof(nodeid_t));
+        if (ret == NULL) return NULL;
+        memcpy(ret, s, sizeof(nodeid_t));
+    } else {
+        /* This reference counter trick will avoid copying around of the
+         * nodeid for the local host */
+        s->local->refcount ++;
+        ret = s;
+    }
 
-    if (ret == NULL) return NULL;
-    memcpy(ret, s, sizeof(nodeid_t));
     return ret;
 }
 
@@ -96,9 +104,12 @@ struct nodeID *create_node (const char *IPaddr, int port)
         return NULL;
     }
 
+    /* Initialization of address */
+    memset(&ret->addr, 0, sizeof(struct sockaddr_in));
     ret->addr.sin_family = AF_INET;
     ret->addr.sin_port = htons(port);
 
+    /* Initialization of string representation */
     if (IPaddr == NULL) {
         /* In case of server, specifying NULL will allow anyone to
          * connect. */
@@ -116,6 +127,10 @@ struct nodeID *create_node (const char *IPaddr, int port)
     }
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
 
+    /* The `local` pointer must be NULL for all instances except for an
+     * instance initializated through `net_helper_init` */
+    ret->local = NULL;
+
     return ret;
 }
 
@@ -123,9 +138,13 @@ void nodeid_free (struct nodeID *s)
 {
     local_info_t *local = s->local = s->local;
     if (local != NULL) {
-        dict_delete(local->neighbours);
-        close(local->fd);
-        free(local);
+        if (local->refcount == 0) {
+            dict_delete(local->neighbours);
+            close(local->fd);
+            free(local);
+        } else {
+            local->refcount --;
+        }
     }
     free(s);
 }
@@ -144,22 +163,21 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
         return NULL;
     }
 
+    self->local = local = malloc(sizeof(local_info_t));
+    if (local == NULL) {
+        nodeid_free(self);
+        return NULL;
+    }
+
+    /* Default settings */
+    local->sendretry = DEFAULT_SENDRETRY;
+    backlog = DEFAULT_BACKLOG;
+
+    /* Reading settings */
     cfg_tags = NULL;
     if (config) {
         cfg_tags = config_parse(config);
     }
-
-    self->local = local = malloc(sizeof(local_info_t));
-    if (local == NULL) {
-        nodeid_free(self);
-        free(cfg_tags);
-        return NULL;
-    }
-
-    local->neighbours = dict_new(AF_INET, 1, cfg_tags);
-
-    local->sendretry = DEFAULT_SENDRETRY;
-    backlog = DEFAULT_BACKLOG;
     if (cfg_tags) {
         config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
                                  DEFAULT_BACKLOG);
@@ -167,6 +185,8 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  &local->sendretry,
                                  DEFAULT_SENDRETRY);
     }
+    local->neighbours = dict_new(AF_INET, 1, cfg_tags);
+    free(cfg_tags);
 
     if (tcp_serve(self, backlog, &e) < 0) {
         print_err(e, "creating server");
@@ -174,15 +194,17 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
         return NULL;
     }
 
+    /* Remaining part of the initialization: */
     local->cached_peer.fd = -1;
+    local->refcount = 0;
 
-    free(cfg_tags);
     return self;
 }
 
 void bind_msg_type(uint8_t msgtype) {}
 
-int send_to_peer(const struct nodeID *from, struct nodeID *to,
+/* TODO: Ask fix for the constantness of first parameter this? */
+int send_to_peer(const struct nodeID *self, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
     int retry;
@@ -194,10 +216,11 @@ int send_to_peer(const struct nodeID *from, struct nodeID *to,
         return 0;
     }
 
-    local = from->local;
+    local = self->local;
     assert(local != NULL);          // TODO: remove after testing
     assert(to->local == NULL);      // TODO: ditto
 
+    tcp_accept(self);
     peer_fd = get_peer(local->neighbours, &to->addr);
     if (peer_fd == -1) {
         return -1;
@@ -241,6 +264,7 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 
         /* No cache from wait4data */
         FD_ZERO(&fds);
+        tcp_accept(self);
         if (fair_select(local->neighbours, NULL, &fds, 0,
                         peer, &err) == -1) {
             print_err(err, "recv select");
@@ -295,6 +319,7 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
         }
     }
 
+    tcp_accept(self);
     switch (fair_select(local->neighbours, tout, &fdset, maxfd + 1,
                         &local->cached_peer, &err)) {
         case 0:
@@ -385,7 +410,7 @@ int tcp_serve (nodeid_t *sd, int backlog, int *e)
     int fd;
     assert(sd->local != NULL);  // TODO: remove when it works.
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd == -1) {
         if (e) *e = errno;
         return -1;
@@ -404,6 +429,30 @@ int tcp_serve (nodeid_t *sd, int backlog, int *e)
         return -3;
     }
     sd->local->fd = fd;
+
+    return 0;
+}
+
+static
+int tcp_accept (const nodeid_t *sd)
+{
+    struct sockaddr_in incoming;
+    socklen_t len;
+    int clifd;
+
+    assert(sd->local != NULL);
+
+    len = sizeof(struct sockaddr_in);
+    while ((clifd = accept(sd->local->fd, (struct sockaddr *)&incoming,
+                           &len)) != -1) {
+        dict_insert(sd->local->neighbours,
+                    (const struct sockaddr *)&incoming, clifd);
+        len = sizeof(struct sockaddr_in);
+    }
+    if (!would_block(errno)) {
+        print_err(errno, "accepting");
+        return -1;
+    }
 
     return 0;
 }
