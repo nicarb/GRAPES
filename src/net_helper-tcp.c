@@ -30,6 +30,8 @@ typedef struct {
     dict_t neighbours;
     connection_t cached_peer;   // Cached during wait4data, used in
                                 // recv_from_peer
+    unsigned refcount;          // Reference counter (workaround for node
+                                // copying).
 } local_info_t;
 
 typedef struct nodeID {
@@ -67,13 +69,16 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 {
     nodeid_t *ret;
 
-    /* Local nodeID cannot be duplicated! */
-    assert(s->local == NULL);
-
-    ret = malloc(sizeof(nodeid_t));
-    if (ret == NULL) return NULL;
-    memcpy(ret, s, sizeof(nodeid_t));
-    ret->local = NULL;
+    if (s->local == NULL) {
+        ret = malloc(sizeof(nodeid_t));
+        if (ret == NULL) return NULL;
+        memcpy(ret, s, sizeof(nodeid_t));
+    } else {
+        /* This reference counter trick will avoid copying around of the
+         * nodeid for the local host */
+        s->local->refcount ++;
+        ret = s;
+    }
 
     return ret;
 }
@@ -133,9 +138,13 @@ void nodeid_free (struct nodeID *s)
 {
     local_info_t *local = s->local = s->local;
     if (local != NULL) {
-        dict_delete(local->neighbours);
-        close(local->fd);
-        free(local);
+        if (local->refcount == 0) {
+            dict_delete(local->neighbours);
+            close(local->fd);
+            free(local);
+        } else {
+            local->refcount --;
+        }
     }
     free(s);
 }
@@ -187,6 +196,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 
     /* Remaining part of the initialization: */
     local->cached_peer.fd = -1;
+    local->refcount = 0;
 
     return self;
 }
