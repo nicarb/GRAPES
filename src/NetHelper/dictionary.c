@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "dictionary.h"
 
@@ -71,29 +72,29 @@ void peer_info_free (void *s)
 
 dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
 {
+    int nbks;
+    dict_t ret;
+    dhash_cprm_t addr_cprm, peer_info_cprm;
+
     if (af != AF_INET) {
         fprintf(stderr, "dictionary: Only AF_INET is supported for the"
                         " moment\n");
         abort();
     }
 
-    int nbks = DEFAULT_N_BUCKETS;
+    nbks = DEFAULT_N_BUCKETS;
     if (cfg_tags != NULL) {
         config_value_int_default(cfg_tags, CONF_KEY_NBUCKETS, &nbks,
                                  DEFAULT_N_BUCKETS);
     }
 
-    dict_t ret = malloc(sizeof(struct dict));
+    ret = malloc(sizeof(struct dict));
     assert(ret != NULL);
 
-    dhash_cprm_t addr_cprm = {
-        .cp = sockaddr_copy,
-        .rm = free
-    };
-    dhash_cprm_t peer_info_cprm = {
-        .cp = peer_info_copy,
-        .rm = autoclose ? peer_info_free : free
-    };
+    addr_cprm.cp = sockaddr_copy;
+    addr_cprm.rm = free;
+    peer_info_cprm.cp = peer_info_copy;
+    peer_info_cprm.rm = autoclose ? peer_info_free : free;
     ret->ht = dhash_new(nbks, sockaddr_hash, sockaddr_cmp,
                         &addr_cprm, &peer_info_cprm);
     return ret;
