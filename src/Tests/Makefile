@@ -25,6 +25,7 @@ endif
 NH_TCP_PARTS := $(wildcard ../NetHelper/*.c)
 ifeq ($(NH_INCARNATION),-tcp)
 	NH=../net_helper-tcp.o $(NH_TCP_PARTS:.c=.o)
+	LDLIBS += -ldacav
 else
 	NH=../net_helper.o
 endif
@@ -32,7 +33,7 @@ endif
 CPPFLAGS = -I$(BASE)/include
 
 LDFLAGS += -L..
-LDLIBS += -lgrapes -ldacav
+LDLIBS += -lgrapes
 #LDFLAGS += -static
 
 all: $(TESTS)
