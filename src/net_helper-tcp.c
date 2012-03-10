@@ -397,7 +397,7 @@ int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e)
         return -1;
     }
 
-    if (connect(fd, (struct sockaddr *) &to,
+    if (connect(fd, (struct sockaddr *)to,
                 sizeof(struct sockaddr_in)) == -1) {
         if (e) *e = errno;
         close(fd);
@@ -491,7 +491,7 @@ int get_peer (dict_t neighbours, struct sockaddr_in *addr)
             return -1;
         }
 
-        dict_insert(neighbours, (struct sockaddr *) &addr, peer.fd);
+        dict_insert(neighbours, (struct sockaddr *) addr, peer.fd);
     }
 
     return peer.fd;
