@@ -129,7 +129,7 @@ struct nodeID *create_node (const char *IPaddr, int port)
         }
         strcpy(ret->repr.ip, IPaddr);
     }
-    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
+    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, ntohs(port));
 
     /* The `local` pointer must be NULL for all instances except for an
      * instance initializated through `net_helper_init` */
