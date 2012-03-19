@@ -16,6 +16,8 @@ TESTS = topology_test \
         config_test \
         tman_test \
         topo_msg_size_test \
+		tcp_fairness \
+		tcp_correctness
 
 ifneq ($(ARCH),win32)
   TESTS += topology_test_th \
@@ -73,6 +75,12 @@ chunk_signaling_test: $(NH)
 
 tman_test: tman_test.o topology.o peer.o net_helpers.o
 tman_test: $(NH)
+
+tcp_fairness: tcp_fairness.o
+tcp_fairness: $(NH)
+
+tcp_correctness: tcp_correctness.o
+tcp_correctness: $(NH)
 
 chunkiser_test: chunkiser_test.o
 chunkiser_test: $(NH)

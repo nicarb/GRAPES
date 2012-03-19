@@ -72,7 +72,7 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
 
     } else {
 
-        /* In non-flipped logick we are searching for a non-used node. If
+        /* In non-flipped logic we are searching for a non-used node. If
          * we find it we stop and we are ok. However we may not find it,
          * so we also search in the used ones as backup plan */
 
@@ -84,7 +84,6 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
                 result->fd = info->fd;
                 result->addr = addr;
             }
-            return DICT_SCAN_CONTINUE;
 
         } else {
 
@@ -92,10 +91,12 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
                 /* We found our never-used peer */
                 result->fd = info->fd;
                 result->addr = addr;
+                return DICT_SCAN_STOP;
             }
-            return DICT_SCAN_STOP;
 
         }
+
+        return DICT_SCAN_CONTINUE;
 
     }
 }
@@ -108,7 +109,14 @@ int fair_select(dict_t neighbours, struct timeval *timeout,
     struct fill_fd_set_data ffsd;
 
     if (dict_size(neighbours) == 0) {
-        /* If we have no neighbors, just behave as a normal select */
+        /* If we have no neighbors, just behave as a normal select.
+         *
+         * Note: the dictionary may contain invalid file descriptors,
+         * which are transparently removed during the scanning phase.
+         *
+         * If however the size is 0 we are sure that there's nothing in,
+         * so this optimization is perfectly safe.
+         */
         return select(nfds, fdset, NULL, NULL, timeout);
     }
 
