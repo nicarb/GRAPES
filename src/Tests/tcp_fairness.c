@@ -9,10 +9,10 @@
 
 #include "net_helper.h"
 
-static const uint16_t START_PORT = 9000;
+static const uint16_t START_PORT = 9400;
 static const char TEST_STRING[] =
     "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec a diam"
-    "lectus.\0 Sed sit amet ipsum mauris. Maecenas congue ligula ac quam"
+    "lectus. Sed sit amet ipsum mauris. Maecenas congue ligula ac quam"
     "viverra nec consectetur ante hendrerit. Donec et mollis dolor."
     "Praesent et diam eget libero egestas mattis sit amet vitae augue. Nam"
     "tincidunt congue enim, ut porta lorem lacinia consectetur. Donec ut"
@@ -27,10 +27,11 @@ static const char TEST_STRING[] =
     "accumsan ultricies.  Mauris vitae nisi at sem facilisis semper ac in"
     "est.";
 
-#define NPEERS 5
 static const size_t READ_BUFSIZE = 10;
 static const int MAX_RETRY = 5;
+static const size_t N_SENDERS = 10;
 
+<<<<<<< HEAD
 typedef struct {
     int id;
     struct nodeID * peers[NPEERS];
@@ -73,15 +74,15 @@ static peer_data_t * init (int id)
 }
 
 static void cleanup (peer_data_t *d)
+=======
+void run_receiver ()
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
 {
-    int i;
+    struct nodeID *self;
+    int retry;
+    size_t cumulate;
 
-    for (i = 0; i < NPEERS; i ++) {
-        nodeid_free(d->peers[i]);
-    }
-    nodeid_free(d->self);
-}
-
+<<<<<<< HEAD
 
 static void do_stats (peer_data_t *pdata, struct nodeID *self, uint32_t *stats)
 {
@@ -89,20 +90,22 @@ static void do_stats (peer_data_t *pdata, struct nodeID *self, uint32_t *stats)
 
     uint32_t the_id;
 
-    while (retry) {
-        struct timeval timeout = {
-            .tv_sec = 0,
-            .tv_usec = 500000
-        };
+=======
+    self = net_helper_init("127.0.0.1", START_PORT, "tcp_backlog=10");
+    fprintf(stderr, "Receiver ready\n");
 
-        fprintf(stderr, "Going in wait [retry=%i]...\n", retry);
-        if (wait4data(self, &timeout, NULL) == 0) {
-            fprintf(stderr, "Timeout [retry=%i]...\n", retry);
-            retry --;
-        } else {
+    retry = MAX_RETRY;
+    cumulate = 0;
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
+    while (retry) {
+        struct timeval tout = {0, 500000};
+
+        if (wait4data(self, &tout, NULL) == 1) {
             struct nodeID *remote;
+            uint8_t buffer[READ_BUFSIZE];
             ssize_t N;
 
+<<<<<<< HEAD
             fprintf(stderr, "Woken up. Now going in recv\n");
 
             N = recv_from_peer(self, &remote, (void *) &the_id, sizeof(uint32_t));
@@ -114,11 +117,25 @@ static void do_stats (peer_data_t *pdata, struct nodeID *self, uint32_t *stats)
             
             if (N <= 0) {
                 retry = 0;
+=======
+            N = recv_from_peer(self, &remote, buffer, READ_BUFSIZE);
+            if (N < 0) {
+                retry --;
+                fprintf(stderr, "Recv failed, retry=%i\n", retry);
+            } else {
+                fprintf(stderr, "Received %i bytes\n", (int)N);
+                cumulate += N;
+                retry = MAX_RETRY;
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
             }
             nodeid_free(remote);
+        } else {
+            retry --;
+            fprintf(stderr, "Timeout, retry=%i\n", retry);
         }
     }
 
+<<<<<<< HEAD
     fprintf(stderr, "End of experiment (retry was %i)\n", retry);
 }
 
@@ -173,19 +190,38 @@ static int sender_sync (peer_data_t *data)
         return -1;
     }
     return 0;
+=======
+    printf("----------------- Stats ---------------------------------\n");
+    printf("cumulative receive: %u (approx %u × %u = %u)\n",
+           (unsigned)cumulate,
+           (unsigned)N_SENDERS,
+           (unsigned)strlen(TEST_STRING),
+           (unsigned)(N_SENDERS * strlen(TEST_STRING)));
+    printf("---------------------------------------------------------\n");
+
+    nodeid_free(self);
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
 }
 
-static int receiver_sync (peer_data_t *data)
+void run_sender (int i)
 {
+<<<<<<< HEAD
     int i;
     
     struct nodeID *remote;
     uint32_t my_id = data->id;
+=======
+    struct nodeID *self;
+    struct nodeID *receiver;
+    const uint8_t *buffer;
+    ssize_t buflen;
+    int retry;
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
 
-    fprintf(stderr, "\n\nTurn will start in a second\n\n");
-    sleep(1);   // Dirty way of giving other time to startup the server.
-    for (i = 0; i < NPEERS; i ++) {
+    self = net_helper_init("127.0.0.1", START_PORT + i, "tcp_backlog=1");
+    receiver = create_node("127.0.0.1", START_PORT);
 
+<<<<<<< HEAD
         fprintf(stderr, "Receiver, sync with %s\n",
                 node_addr(data->peers[i]));
         if (send_to_peer(data->self, data->peers[i], (void *) &my_id,
@@ -203,35 +239,55 @@ static int receiver_sync (peer_data_t *data)
         i --;
     }
     fprintf(stderr, "Receiver sync completed\n");
+=======
+    fprintf(stderr, "Sender %i waiting 0.75 sec...\n", i);
+    usleep(750000);
 
-    return 0;
-}
+    fprintf(stderr, "Sender %i starting transmission.\n", i);
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
 
+    buffer = TEST_STRING;
+    buflen = strlen(TEST_STRING);
+
+<<<<<<< HEAD
 static peer_data_t *run_peer (int id)
 {
     peer_data_t *data = init(id);
     int turn;
+=======
+    retry = MAX_RETRY;
+    while (buflen > 0 && retry) {
+        ssize_t N;
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
 
-    for (turn = 0; turn <= NPEERS; turn ++) {
-        if (turn == id) {
-            if (receiver_sync(data) == -1) {
-                fprintf(stderr, "Receiver cannot sync, interrupting\n");
+        N = send_to_peer(self, receiver, buffer, READ_BUFSIZE);
+        if (N < 0) {
+            fprintf(stderr, "Sender %i send anomalous, N=%i\n", i, (int)N);
+            retry --;
+            if (retry == 0) {
+                fprintf(stderr, "Sender %i giving up.\n", i);
             }
         } else {
-            if (sender_sync(data) == -1) {
-                fprintf(stderr, "Sender cannot sync, interrupting\n");
-            }
+            buffer += N;
+            buflen -= N;
         }
     }
+<<<<<<< HEAD
     return data;
     
+=======
+
+    nodeid_free(receiver);
+    nodeid_free(self);
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
 }
 
 int main (int argc, char **argv)
 {
-    pid_t peers[NPEERS + 1];
+    pid_t peers[N_SENDERS + 1];
     int i;
 
+<<<<<<< HEAD
     peer_data_t* peerdata[NPEERS];
 
     for (i = 0; i <= NPEERS; i ++) {
@@ -240,12 +296,23 @@ int main (int argc, char **argv)
         if (P == 0) {
             peerdata[i] = run_peer(i);
 
+=======
+    for (i = 1; i <= N_SENDERS; i ++) {
+        pid_t P = fork();
+
+        if (P == 0) {
+            run_sender(i);
+>>>>>>> 736143199a6a5487771c0d3028f3283b11291540
             exit(EXIT_SUCCESS);
         }
         peers[i] = P;
     }
+    if ((peers[0] = fork()) == 0) {
+        run_receiver();
+        exit(EXIT_SUCCESS);
+    }
 
-    for (i = 0; i <= NPEERS; i ++) {
+    for (i = 0; i <= N_SENDERS; i ++) {
         int status;
         
         // some statistics about the peers
