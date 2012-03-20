@@ -32,11 +32,12 @@ static const size_t READ_BUFSIZE = 10;
 static const int MAX_RETRY = 5;
 
 typedef struct {
+    int id;
     struct nodeID * peers[NPEERS];
     struct nodeID * self;
     struct nodeID * turn_receiver;
-
     char *buffers[NPEERS];
+    int counter[NPEERS];
 } peer_data_t;
 
 static peer_data_t * init (int id)
@@ -45,9 +46,12 @@ static peer_data_t * init (int id)
     peer_data_t * ret = malloc(sizeof(peer_data_t));
     assert(ret != NULL);
 
+    ret->id = id;
+
     for (j = i = 0; i <= NPEERS; i ++) {
         uint16_t port = START_PORT + i;
 
+        ret->counter[i] = 0;
         if (i == id) {
             fprintf(stderr, "Server for node, id=%i, port=%hu\n", id, port);
             ret->self = net_helper_init("127.0.0.1", port, NULL);
@@ -55,11 +59,14 @@ static peer_data_t * init (int id)
             fprintf(stderr, "Target connection for node %i at port %hu\n",
                     id, port);
             ret->peers[j] = create_node("127.0.0.1", port);
-            ret->buffers[j] = calloc(strlen(TEST_STRING) + 1,
+            
+            // strlen(TEST_STRING) + 2: 1 def + 1 as preamble for identifying the sender
+            ret->buffers[j] = calloc(strlen(TEST_STRING) + 2, 
                                      sizeof(char));
             j ++;
         }
     }
+
     ret->turn_receiver = NULL;
 
     return ret;
@@ -75,11 +82,12 @@ static void cleanup (peer_data_t *d)
     nodeid_free(d->self);
 }
 
-#if 0
-static void do_stats (struct nodeID *self, uint32_t *stats)
+
+static void do_stats (peer_data_t *pdata, struct nodeID *self, uint32_t *stats)
 {
-    char buffer[READ_BUFSIZE];
     int retry = MAX_RETRY;
+
+    uint32_t the_id;
 
     while (retry) {
         struct timeval timeout = {
@@ -96,9 +104,14 @@ static void do_stats (struct nodeID *self, uint32_t *stats)
             ssize_t N;
 
             fprintf(stderr, "Woken up. Now going in recv\n");
-            N = recv_from_peer(self, &remote, buffer, READ_BUFSIZE);
-            fprintf(stderr, "Received %i bytes from %s [retry=%i]\n",
-                    (int)N, node_addr(remote), retry);
+
+            N = recv_from_peer(self, &remote, (void *) &the_id, sizeof(uint32_t));
+
+            pdata->counter[the_id] += N;
+
+            fprintf(stderr, "Received %i bytes from %s [tot=%d, retry=%i]\n",
+                    (int)N, node_addr(remote), pdata->counter[the_id], retry);
+            
             if (N <= 0) {
                 retry = 0;
             }
@@ -109,6 +122,7 @@ static void do_stats (struct nodeID *self, uint32_t *stats)
     fprintf(stderr, "End of experiment (retry was %i)\n", retry);
 }
 
+#if 0
 static void send_lorem_ipsum (struct nodeID *self, struct nodeID *target)
 {
     int running = 1;
@@ -141,10 +155,11 @@ static void send_lorem_ipsum (struct nodeID *self, struct nodeID *target)
 static int sender_sync (peer_data_t *data)
 {
     struct nodeID *remote;
-    uint8_t msg;
+
+    uint32_t my_id = data->id;
 
     fprintf(stderr, "Sender waiting for receiver sync\n");
-    if (recv_from_peer(data->self, &remote, (void *)&msg, 1) == -1) {
+    if (recv_from_peer(data->self, &remote, (void *) &my_id, sizeof(uint32_t)) == -1) {
         return -1;
     }
 
@@ -154,7 +169,7 @@ static int sender_sync (peer_data_t *data)
     data->turn_receiver = remote;
 
     fprintf(stderr, "Sender completing sync with %s\n", node_addr(remote));
-    if (send_to_peer(data->self, remote, (void *)&msg, 1) == -1) {
+    if (send_to_peer(data->self, remote, (void *) &my_id, sizeof(uint32_t)) == -1) {
         return -1;
     }
     return 0;
@@ -163,8 +178,9 @@ static int sender_sync (peer_data_t *data)
 static int receiver_sync (peer_data_t *data)
 {
     int i;
-    uint8_t msg = 1;
+    
     struct nodeID *remote;
+    uint32_t my_id = data->id;
 
     fprintf(stderr, "\n\nTurn will start in a second\n\n");
     sleep(1);   // Dirty way of giving other time to startup the server.
@@ -172,14 +188,16 @@ static int receiver_sync (peer_data_t *data)
 
         fprintf(stderr, "Receiver, sync with %s\n",
                 node_addr(data->peers[i]));
-        if (send_to_peer(data->self, data->peers[i], (void *)&msg, 1) == -1) {
+        if (send_to_peer(data->self, data->peers[i], (void *) &my_id,
+                         sizeof(uint32_t)) == -1) {
             return -1;
         }
     }
 
     while (i > 0) {
         fprintf(stderr, "Sync, %i missing...\n", i);
-        if (recv_from_peer(data->self, &remote, (void *)&msg, 1) == -1) {
+        if (recv_from_peer(data->self, &remote, (void *) &my_id,
+                           sizeof(uint32_t)) == -1) {
             return -1;
         }
         i --;
@@ -189,7 +207,7 @@ static int receiver_sync (peer_data_t *data)
     return 0;
 }
 
-static void run_peer (int id)
+static peer_data_t *run_peer (int id)
 {
     peer_data_t *data = init(id);
     int turn;
@@ -205,8 +223,8 @@ static void run_peer (int id)
             }
         }
     }
-
-    cleanup(data);
+    return data;
+    
 }
 
 int main (int argc, char **argv)
@@ -214,11 +232,14 @@ int main (int argc, char **argv)
     pid_t peers[NPEERS + 1];
     int i;
 
+    peer_data_t* peerdata[NPEERS];
+
     for (i = 0; i <= NPEERS; i ++) {
         pid_t P = fork();
 
         if (P == 0) {
-            run_peer(i);
+            peerdata[i] = run_peer(i);
+
             exit(EXIT_SUCCESS);
         }
         peers[i] = P;
@@ -226,7 +247,10 @@ int main (int argc, char **argv)
 
     for (i = 0; i <= NPEERS; i ++) {
         int status;
-
+        
+        // some statistics about the peers
+        do_stats(peerdata[i], peerdata[i]->self, &status);
+        cleanup(peerdata[i]);
         waitpid(peers[i], &status, 0);
         printf("Peer %i exited with status %i\n", i,
                WEXITSTATUS(status));

@@ -57,8 +57,8 @@ static struct nodeID *init(void)
   return myID;
 }
 
-static void cmdline_parse(int argc, char *argv[])
-{
+static void cmdline_parse(int argc, char *argv[]){
+
   int o;
 
   while ((o = getopt(argc, argv, "p:i:P:I:")) != -1) {
