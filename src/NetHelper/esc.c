@@ -87,6 +87,9 @@ ssize_t esc_send (int fd, const void *buffer, size_t src_size, int flags)
     header_t hdr;
 
     errno = 0;
+    if (src_size == 0) {
+        return 0;
+    }
     header_set_len(&hdr, src_size);
     if (send_header(fd, &hdr) < 0) {
         return -1;

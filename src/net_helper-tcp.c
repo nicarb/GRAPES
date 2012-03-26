@@ -57,8 +57,7 @@ static inline int dead_filedescriptor (int e);
 static nodeid_t * addr_to_nodeid (const struct sockaddr_in *addr);
 static int wait_incoming (const nodeid_t *self, struct timeval *tout,
                           fd_set *S, int nfds);
-static int update_neighbours (dict_t neigh, struct sockaddr_in *addr,
-                              int fd);
+static int update_neighbours (dict_t neigh, int fd);
 static int recv_serv_address (int fd, struct sockaddr_in *out_addr);
 static int send_serv_address (int fd, const struct sockaddr_in *addr);
 
@@ -448,7 +447,7 @@ int tcp_accept_queue (const nodeid_t *sd)
                     return -1;
                 }
 
-                if (update_neighbours(sd->local->neighbours, &incoming,
+                if (update_neighbours(sd->local->neighbours,
                                       clifd) == -1) {
                     return -1;
                 }
@@ -576,15 +575,13 @@ int wait_incoming (const nodeid_t *self, struct timeval *tout, fd_set *S,
 }
 
 static
-int update_neighbours (dict_t neigh, struct sockaddr_in *addr, int fd)
+int update_neighbours (dict_t neigh, int fd)
 {
     struct sockaddr_in neigh_serv;
 
     if (recv_serv_address(fd, &neigh_serv) == -1) {
         return -1;
     }
-
-    dict_insert(neigh, (const struct sockaddr *)addr, fd);
     dict_insert(neigh, (const struct sockaddr *)&neigh_serv, fd);
 
     return 0;
@@ -593,42 +590,18 @@ int update_neighbours (dict_t neigh, struct sockaddr_in *addr, int fd)
 static
 int send_serv_address (int fd, const struct sockaddr_in *addr)
 {
-    const uint8_t *buffer;
-    ssize_t size;
-
-    buffer = (const uint8_t *)addr;
-    size = sizeof(struct sockaddr_in);
-    do {
-        ssize_t n = write(fd, (const void *)buffer, size);
-        if (n == -1) {
-            print_err(errno, "sending local server address");
-            return -1;
-        }
-        size -= n;
-        buffer += n;
-    } while (size > 0);
-
-    return 0;
+    return esc_send(fd, (const void *)addr,
+                    sizeof(struct sockaddr_in), 0);
 }
 
 static
 int recv_serv_address (int fd, struct sockaddr_in *out_addr)
 {
-    uint8_t *buffer;
-    ssize_t size;
-
-    buffer = (uint8_t *)out_addr;
-    size = sizeof(struct sockaddr_in);
-    do {
-        ssize_t n = read(fd, (void *)buffer, size);
-        if (n == -1) {
-            print_err(errno, "receiving remote server address");
-            return -1;
-        }
-        size -= n;
-        buffer += n;
-    } while (size > 0);
-
+    if (esc_recv(fd, (void *)out_addr,
+                 sizeof(struct sockaddr_in), 0) < 0) {
+        print_err(errno, "receiving remote server address");
+        return -1;
+    }
     return 0;
 }
 
