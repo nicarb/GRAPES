@@ -29,12 +29,7 @@
 
 typedef struct dict * dict_t;
 
-typedef struct {
-    int fd;
-    struct {
-        unsigned used : 1;
-    } flags;
-} peer_info_t;
+typedef struct peer_info * peer_info_t;
 
 /** Constructor for the dictionary.
  *
@@ -78,7 +73,7 @@ size_t dict_size (dict_t D);
  * @retval -1 on failure.
  */
 int dict_lookup (dict_t D, const struct sockaddr *addr,
-                 peer_info_t **info);
+                 peer_info_t *info);
 
 /** Lookup function.
  *
@@ -91,7 +86,7 @@ int dict_lookup (dict_t D, const struct sockaddr *addr,
  *
  */
 void dict_lookup_default (dict_t D, const struct sockaddr *addr,
-                          peer_info_t *info,
+                          peer_info_t info,
                           int (* make_socket) (void *ctx), void *ctx);
 
 /** Insertion function.
@@ -150,7 +145,7 @@ typedef enum {
  */
 typedef dict_scanact_t (* dict_scancb_t) (void *ctx,
                                           const struct sockaddr *addr,
-                                          peer_info_t *info);
+                                          peer_info_t info);
 
 /** Implementation-agnostic scanning procedure for the dictionary.
  *
@@ -169,6 +164,14 @@ typedef dict_scanact_t (* dict_scancb_t) (void *ctx,
  * @param[in] ctx The user context;
  */
 void dict_scan (dict_t D, dict_scancb_t cback, void *ctx);
+
+int dict_get_fd (peer_info_t info);
+
+int dict_is_used (peer_info_t info);
+
+int dict_set_used (peer_info_t info);
+
+int dict_reset_used (peer_info_t info);
 
 #endif // DICTIONARY_H
 

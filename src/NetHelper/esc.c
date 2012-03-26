@@ -173,7 +173,7 @@ ssize_t esc_recv (int fd, void *buffer, size_t size, int flags)
     switch (flush_message(fd)) {
         case -1:    /* Connection error */
             return -1;
-        case 0:     /* End of transmission */
+        case 0:     /* Socket closed */
             return 0;
         case 1:     /* We got the EOF immediately, good! */
             return cumulated;

@@ -17,19 +17,22 @@ struct fill_fd_set_data {
 
 static
 dict_scanact_t scan_fill_fd_set (void *ctx, const struct sockaddr *addr,
-                                 peer_info_t *info)
+                                 peer_info_t info)
 {
     /* Used initially to scan all the file descriptors and put them
      * into the file descriptors set. Also collecting the maximum of them
      * (used by select(2)) and count how much file descriptors have never
      * been used */
     struct fill_fd_set_data *ffsd = ctx;
+    int fd;
 
-    FD_SET(info->fd, ffsd->readfds);
-    if (info->fd > ffsd->maxfd) {
-        ffsd->maxfd = info->fd;
+    fd = dict_get_fd(info);
+
+    FD_SET(fd, ffsd->readfds);
+    if (fd > ffsd->maxfd) {
+        ffsd->maxfd = fd;
     }
-    if (!info->flags.used) {
+    if (!dict_is_used(info)) {
         ffsd->count_unused ++;
     }
     return DICT_SCAN_CONTINUE;
@@ -46,11 +49,13 @@ struct pick_fair_data {
 
 static
 dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
-                               peer_info_t *info)
+                               peer_info_t info)
 {
     struct pick_fair_data *pfd = ctx;
     connection_t *result = pfd->result;
+    int peer_fd;
 
+    peer_fd = dict_get_fd(info);
     if (pfd->flags.flip) {
 
         /* In flipped logic we select the very first file descriptor (any
@@ -61,12 +66,12 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
          * unused", by construction there must be a node willing to
          * transmit (otherwise we would be still locked on select(2)).
          */
-        if (result->fd == -1 && FD_ISSET(info->fd, pfd->readfds)) {
+        if (result->fd == -1 && FD_ISSET(peer_fd, pfd->readfds)) {
             /* First one. We'll use this, so we won't set it unused. */
-            result->fd = info->fd;
+            result->fd = peer_fd;
             result->addr = addr;
         } else {
-            info->flags.used = 0;
+            dict_reset_used(info);
         }
         return DICT_SCAN_CONTINUE;
 
@@ -76,20 +81,20 @@ dict_scanact_t scan_pick_fair (void *ctx, const struct sockaddr *addr,
          * we find it we stop and we are ok. However we may not find it,
          * so we also search in the used ones as backup plan */
 
-        if (info->flags.used) {
+        if (dict_is_used(info)) {
 
-            if (!pfd->flags.backup && FD_ISSET(info->fd, pfd->readfds)) {
+            if (!pfd->flags.backup && FD_ISSET(peer_fd, pfd->readfds)) {
                 /* We have our backup plan */
                 pfd->flags.backup = 1;
-                result->fd = info->fd;
+                result->fd = peer_fd;
                 result->addr = addr;
             }
 
         } else {
 
-            if (FD_ISSET(info->fd, pfd->readfds)) {
+            if (FD_ISSET(peer_fd, pfd->readfds)) {
                 /* We found our never-used peer */
-                result->fd = info->fd;
+                result->fd = peer_fd;
                 result->addr = addr;
                 return DICT_SCAN_STOP;
             }

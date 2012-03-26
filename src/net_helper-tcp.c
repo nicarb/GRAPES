@@ -474,12 +474,12 @@ void print_err (int e, const char *msg)
 static
 int get_peer (const nodeid_t *self, struct sockaddr_in *addr)
 {
-    peer_info_t *peer;
+    peer_info_t peer;
     dict_t neighbours = self->local->neighbours;
 
     if (dict_lookup(neighbours, (const struct sockaddr *) addr,
                     &peer) == 0) {
-        return peer->fd;
+        return dict_get_fd(peer);
     } else {
         /* We don't have the address stored, thus we need to connect */
         int fd;

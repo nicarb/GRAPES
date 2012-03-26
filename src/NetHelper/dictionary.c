@@ -16,6 +16,13 @@
 
 #include "dictionary.h"
 
+struct peer_info {
+    int fd;
+    struct {
+        unsigned used : 1;
+    } flags;
+};
+
 /* -- Constants ------------------------------------------------------ */
 
 static const char * CONF_KEY_NBUCKETS = "tcp_hashbuckets";
@@ -65,13 +72,13 @@ void * sockaddr_copy (const void *s)
 static
 void * peer_info_copy (const void *s)
 {
-    return create_copy(s, sizeof(peer_info_t));
+    return create_copy(s, sizeof(struct peer_info));
 }
 
 static
 void peer_info_free (void *s)
 {
-    close(((peer_info_t *)s)->fd);
+    close(((peer_info_t)s)->fd);
     free(s);
 }
 
@@ -118,7 +125,7 @@ size_t dict_size (dict_t D)
 }
 
 int dict_lookup (dict_t D, const struct sockaddr *addr,
-                 peer_info_t **info)
+                 peer_info_t *info)
 {
     if (dhash_search(D->ht, (const void *)addr, (void **)info)
             == DHASH_FOUND) {
@@ -137,7 +144,7 @@ static
 void * build_peer_info (void * param)
 {
     struct lookup_data *ld = param;
-    peer_info_t * info = malloc(sizeof(peer_info_t));
+    peer_info_t info = malloc(sizeof(struct peer_info));
 
     assert(info != NULL);
     info->flags.used = 0;
@@ -147,7 +154,7 @@ void * build_peer_info (void * param)
 }
 
 void dict_lookup_default (dict_t D, const struct sockaddr *addr,
-                          peer_info_t *info,
+                          peer_info_t info,
                           int (* make_socket) (void *ctx), void *ctx)
 {
     /* NOTE: currently this code is NOT used. If enabling this feature,
@@ -166,7 +173,7 @@ void dict_lookup_default (dict_t D, const struct sockaddr *addr,
 
 int dict_insert (dict_t D, const struct sockaddr * addr, int fd)
 {
-    peer_info_t info;
+    struct peer_info info;
     info.fd = fd;
     info.flags.used = 0;
 
@@ -196,7 +203,7 @@ void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
     int go = 1;
     while (go && diter_hasnext(it)) {
         dhash_pair_t *P;
-        peer_info_t *info;
+        peer_info_t info;
 
         P = diter_next(it);
         info = dhash_val(P);
@@ -221,6 +228,30 @@ void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
         }
     }
     dhash_iter_free(it);
+}
+
+int dict_get_fd (peer_info_t info)
+{
+    return info->fd;
+}
+
+int dict_is_used (peer_info_t info)
+{
+    return info->flags.used;
+}
+
+int dict_reset_used (peer_info_t info)
+{
+    int how_was = info->flags.used;
+    info->flags.used = 0;
+    return how_was;
+}
+
+int dict_set_used (peer_info_t info)
+{
+    int how_was = info->flags.used;
+    info->flags.used = 1;
+    return how_was;
 }
 
 /* -- Internal functions --------------------------------------------- */
