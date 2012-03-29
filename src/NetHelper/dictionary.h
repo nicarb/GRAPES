@@ -165,13 +165,44 @@ typedef dict_scanact_t (* dict_scancb_t) (void *ctx,
  */
 void dict_scan (dict_t D, dict_scancb_t cback, void *ctx);
 
-int dict_get_fd (peer_info_t info);
+/** Get the file descriptor for a given dictionary entry.
+ *
+ * @param[in] info The dictionary entry.
+ *
+ * @returns The file descriptor corresponding to the entry.
+ */
+int dict_get_fd (const peer_info_t info);
 
-int dict_is_used (peer_info_t info);
+/** Read the used flag for a given dictionary entry.
+ *
+ * @param[in] info The dictionary entry.
+ *
+ * @retval 0 if the entry is not flagged as used;
+ * @retval 1 if the entry is flagged as used.
+ */
+int dict_is_used (const peer_info_t info);
 
+/** Set the used flag for a given dictionary entry.
+ *
+ * @param[in] info The dictionary entry.
+ *
+ * @return The previous value of the flag.
+ */
 int dict_set_used (peer_info_t info);
 
+/** Reset the used flag for a given dictionary entry.
+ *
+ * @param[in] info The dictionary entry. 
+ *
+ * @return The previous value of the flag.
+ */
 int dict_reset_used (peer_info_t info);
+
+/** Update the timestamp for a given dictionary entry.
+ *
+ * @param[in] info The dictionary entry.
+ */
+void dict_refresh (peer_info_t info);
 
 #endif // DICTIONARY_H
 

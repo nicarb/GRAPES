@@ -6,6 +6,7 @@
  */
 
 #include <dacav/dacav.h>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -13,11 +14,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/time.h>
 
 #include "dictionary.h"
+#include "timeout.h"
 
 struct peer_info {
     int fd;
+    tout_t timeout;
     struct {
         unsigned used : 1;
     } flags;
@@ -26,19 +30,22 @@ struct peer_info {
 /* -- Constants ------------------------------------------------------ */
 
 static const char * CONF_KEY_NBUCKETS = "tcp_hashbuckets";
+static const char * CONF_KEY_TIMEOUT = "tcp_socktimeout";
 
 // Arbitrary and reasonable(?) prime number.
 static const unsigned DEFAULT_N_BUCKETS = 23;
+static const unsigned DEFAULT_TIMEOUT_MINUTES = 10;
 
 /* -- Internal functions --------------------------------------------- */
 
-static int invalid_fd (int fd);
+static inline int invalid_fd (int fd);
 
 /* -- Interface exported symbols ------------------------------------- */
 
 struct dict {
     dhash_t *ht;
     size_t count;
+    unsigned tout_minutes;
 };
 
 static
@@ -78,13 +85,17 @@ void * peer_info_copy (const void *s)
 static
 void peer_info_free (void *s)
 {
-    close(((peer_info_t)s)->fd);
+    peer_info_t info = s;
+
+    tout_del(info->timeout);
+    close(info->fd);
     free(s);
 }
 
 dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
 {
     int nbks;
+    unsigned tout_minutes;
     dict_t ret;
     dhash_cprm_t addr_cprm, peer_info_cprm;
 
@@ -95,9 +106,12 @@ dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
     }
 
     nbks = DEFAULT_N_BUCKETS;
+    tout_minutes = DEFAULT_TIMEOUT_MINUTES;
     if (cfg_tags != NULL) {
         config_value_int_default(cfg_tags, CONF_KEY_NBUCKETS, &nbks,
                                  DEFAULT_N_BUCKETS);
+        config_value_int_default(cfg_tags, CONF_KEY_TIMEOUT,
+                                 &tout_minutes, DEFAULT_TIMEOUT_MINUTES);
     }
 
     ret = malloc(sizeof(struct dict));
@@ -107,9 +121,12 @@ dict_t dict_new (int af, int autoclose, struct tag *cfg_tags)
     addr_cprm.rm = free;
     peer_info_cprm.cp = peer_info_copy;
     peer_info_cprm.rm = autoclose ? peer_info_free : free;
+
     ret->ht = dhash_new(nbks, sockaddr_hash, sockaddr_cmp,
                         &addr_cprm, &peer_info_cprm);
     ret->count = 0;
+    ret->tout_minutes = tout_minutes;
+
     return ret;
 }
 
@@ -174,8 +191,14 @@ void dict_lookup_default (dict_t D, const struct sockaddr *addr,
 int dict_insert (dict_t D, const struct sockaddr * addr, int fd)
 {
     struct peer_info info;
+    struct timeval tout;
+
     info.fd = fd;
     info.flags.used = 0;
+
+    tout.tv_usec = 0;
+    tout.tv_sec = 60 * D->tout_minutes;
+    info.timeout = tout_new(&tout);
 
     if (dhash_insert(D->ht, (const void *)addr, (void *)&info)
             == DHASH_FOUND) {
@@ -204,11 +227,12 @@ void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
     while (go && diter_hasnext(it)) {
         dhash_pair_t *P;
         peer_info_t info;
+        int garbage;
 
         P = diter_next(it);
         info = dhash_val(P);
 
-        if (invalid_fd(info->fd)) {
+        if (invalid_fd(info->fd) || tout_expired(info->timeout)) {
             diter_remove(it, NULL);
             D->count --;
         } else {
@@ -230,12 +254,12 @@ void dict_scan (dict_t D, dict_scancb_t cback, void *ctx)
     dhash_iter_free(it);
 }
 
-int dict_get_fd (peer_info_t info)
+int dict_get_fd (const peer_info_t info)
 {
     return info->fd;
 }
 
-int dict_is_used (peer_info_t info)
+int dict_is_used (const peer_info_t info)
 {
     return info->flags.used;
 }
@@ -254,9 +278,14 @@ int dict_set_used (peer_info_t info)
     return how_was;
 }
 
+void dict_refresh (peer_info_t info)
+{
+    tout_reset(info->timeout);
+}
+
 /* -- Internal functions --------------------------------------------- */
 
-static
+static inline
 int invalid_fd (int fd)
 {
     return fcntl(fd, F_GETFL) == -1;
