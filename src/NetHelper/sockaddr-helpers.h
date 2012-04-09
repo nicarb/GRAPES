@@ -22,5 +22,7 @@ int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
 int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
                       uint16_t port);
 
+struct sockaddr * sockaddr_copy (const struct sockaddr * src);
+
 #endif // SOCKADDR_HELPERS_H
 

@@ -5,7 +5,9 @@
 
 typedef struct tout * tout_t;
 
-tout_t tout_new (struct timeval *timeout); 
+tout_t tout_new (const struct timeval *timeout); 
+
+tout_t tout_copy (const tout_t t); 
 
 void tout_reset (tout_t t);
 

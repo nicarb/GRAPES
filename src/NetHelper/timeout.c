@@ -1,4 +1,5 @@
 #include "timeout.h"
+#include "utils.h"
 
 #include <sys/time.h>
 #include <stdlib.h>
@@ -10,14 +11,24 @@ struct tout {
     struct timeval period;
 };
 
-tout_t tout_new (struct timeval *timeout)
+tout_t tout_new (const struct timeval *timeout)
 {
     tout_t ret;
 
-    ret = malloc(sizeof(struct tout));
-    assert(ret != NULL);
+    ret = mem_new(sizeof(struct tout));
 
-    memcpy((void *)&ret->period, timeout, sizeof(struct timeval));
+    memcpy((void *)&ret->period, (const void *)timeout,
+           sizeof(struct timeval));
+    tout_update(ret);
+
+    return ret;
+}
+
+tout_t tout_copy (const tout_t t)
+{
+    tout_t ret;
+
+    ret = mem_dup(t, sizeof(struct tout));
     tout_update(ret);
 
     return ret;

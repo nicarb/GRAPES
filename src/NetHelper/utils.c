@@ -3,11 +3,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-void * mem_new (size_t size)
+void * mem_renew (void * ptr, size_t size)
 {
-    void * ret = malloc(size);
+    void * ret = reallo(ptr, size);
     if (ret == NULL) abort();
     return ret;
+}
+
+void * mem_new (size_t size)
+{
+    return mem_renew(NULL, size);
 }
 
 void * mem_dup (const void * src, size_t size)

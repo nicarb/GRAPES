@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 static
 ssize_t get_size (const struct sockaddr *s)
@@ -21,7 +22,7 @@ size_t sockaddr_size (const struct sockaddr *s)
 {
     size_t ret = get_size(s);
     if (ret == -1) {
-        print_err("Address analysis", "Family not supported");
+        print_err("Address analysis", "family not supported", 0);
         abort();
     }
     return ret;
@@ -47,7 +48,7 @@ uintptr_t sockaddr_hash (const struct sockaddr *k)
 
 int sockaddr_cmp (const struct sockaddr *sa0, const struct sockaddr *sa1)
 {
-    size_t s0, s1;
+    size_t size0, size1;
 
     size0 = sockaddr_size(sa0);
     size1 = sockaddr_size(sa1);
@@ -84,6 +85,12 @@ int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
     return len;
 }
 
+struct sockaddr * sockaddr_copy (const struct sockaddr * src)
+{
+    return (struct sockaddr *) mem_dup((const void *)src,
+                                       sockaddr_size(src));
+}
+
 int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
                       uint16_t port)
 {
@@ -98,7 +105,7 @@ int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
         in->sin_addr.s_addr = INADDR_ANY;
     } else {
         if (inet_pton(AF_INET, ipaddr, (void *)&in->sin_addr) == 0) {
-            print_err("sockaddr init", "invalid address");
+            print_err("Initializing sockaddr", "invalid address", 0);
             return -1;
         }
     }

@@ -6,18 +6,23 @@
  */
 
 #include <netinet/in.h>
+#include <sys/epoll.h>
 
 #include "net_helper.h"
 #include "config.h"
 
 #include "NetHelper/sockaddr-helpers.h"
 #include "NetHelper/utils.h"
+#include "NetHelper/server.h"
 
 /* -- Internal data types -------------------------------------------- */
 
 typedef struct {
     unsigned refcount;          // Reference counter (workaround for node
                                 // copying).
+    int pollfd;
+    server_t server;
+    dict_t neighbors;
 } local_info_t;
 
 typedef struct nodeID {
@@ -33,10 +38,15 @@ typedef struct nodeID {
 
 /* -- Internal functions --------------------------------------------- */
 
-static local_info_t * local_new (const char *config);
+static local_info_t * local_new (struct sockaddr *addr, const char *cfg);
 static void local_del (local_info_t *l);
 
 /* -- Constants ------------------------------------------------------ */
+
+static const size_t MAX_CHECKED_EVENTS = 10;
+
+static const unsigned DEFAULT_BACKLOG = 5;
+static const char CONF_KEY_BACKLOG[] = "TCPBacklog";
 
 /* -- Interface exported symbols ------------------------------------- */
 
@@ -110,12 +120,21 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  const char *config)
 {
     nodeid_t *self;
-    struct tag *cfg_tags;
+    struct tag *cfg;
     local_info_t *local;
 
     self = create_node(IPaddr, port);
-    if (self == NULL) return NULL;
-    self->local = local_new(config);
+    if (self == NULL) {
+        return NULL;
+    }
+
+    cfg = config_parse(config);
+    if ((self->local = local_new(self->paddr, cfg)) == NULL) {
+        free(cfg);
+        nodeid_free(self);
+        return NULL;
+    }
+    free(cfg);
 
     return self;
 }
@@ -160,18 +179,67 @@ const char *node_addr (const struct nodeID *s)
 
 /* -- Internal functions --------------------------------------------- */
 
-static local_info_t * local_new (const char *config)
+static
+local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
 {
-    local_info_t * local = mem_new(sizeof(local_info_t));
-    local->refcount = 1;
+    local_info_t * L;
+    int tcp_backlog;
 
-    return local;
+    L = mem_new(sizeof(local_info_t));
+    L->refcount = 1;
+    L->pollfd = -1;
+    L->server = NULL;
+    L->neighbors = NULL;
+
+    if ((L->pollfd = epoll_create1(0)) == -1) {
+        print_err("Net-helper (tcp)", "epoll_create", errno);
+        return NULL;
+    }
+
+    tcp_backlog = DEFAULT_BACKLOG;
+    if (cfg) {
+        config_value_int_default(cfg, CONF_KEY_BACKLOG, &tcp_backlog,
+                                 DEFAULT_BACKLOG);
+    }
+
+    if ((L->neighbors = dict_new(cfg)) == NULL) {
+        local_del(L);
+        return NULL;
+    }
+
+    if ((L->server = server_new(addr, tcp_backlog, L->pollfd,
+                                L->neighbors)) == NULL) {
+        local_del(L);
+        return NULL;
+    }
+
+    return L;
 }
 
-static void local_del (local_info_t *l)
+static
+void local_del (local_info_t *L)
 {
-    if (-- l->refcount == 0) {
-        free(l);
+    if (-- L->refcount > 0) return;
+    if (L->pollfd != -1) close(L->pollfd);
+    if (L->server) server_del(L->server);
+    if (L->neighbors) dict_del(L->neighbors);
+    free(L);
+}
+
+static
+int local_run_epoll (local_info_t *l, int toutmilli)
+{
+    struct epoll_event events[MAX_CHECKED_EVENTS];
+    int i, nev;
+
+    nev = epoll_wait(l->pollfd, events, MAX_CHECKED_EVENTS, toutmilli);
+    if (nev == -1) {
+        print_err("Polling", "epoll_wait", errno);
+        return -1;
+    }
+
+    for (i = 0; i < nev; i ++) {
+        pollcb_run((pollcb_t) events[i].data.ptr, l->pollfd);
     }
 }
 

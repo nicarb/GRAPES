@@ -3,12 +3,11 @@
 
 typedef struct pollcb * pollcb_t;
 
-pollcb_t pollcb_new (void * (* event_cb) (void *), void * ctx,
-                     void (* ctx_free_cb) (void *));
+pollcb_t pollcb_new (void * (* event_cb) (void *, int), void * ctx);
 
 void pollcb_del (pollcb_t p);
 
-void pollcb_run (pollcb_t p);
+void pollcb_run (pollcb_t p, int epollfd);
 
 #endif // POLL_CB_H
 
