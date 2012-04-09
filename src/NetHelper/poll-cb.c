@@ -1,8 +1,10 @@
-#include "poll-cb.h"
 #include <stdlib.h>
 
+#include "utils.h"
+#include "poll-cb.h"
+
 struct pollcb {
-    void * (*event_cb) (void *);
+    void * (*event_cb) (void *, int);
     void * ctx;
 };
 

@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <arpa/inet.h>
 
 static
 ssize_t get_size (const struct sockaddr *s)
@@ -22,7 +24,7 @@ size_t sockaddr_size (const struct sockaddr *s)
 {
     size_t ret = get_size(s);
     if (ret == -1) {
-        print_err("Address analysis", "family not supported", 0);
+        print_err("Address analysis", NULL, EAFNOSUPPORT);
         abort();
     }
     return ret;
@@ -91,6 +93,38 @@ struct sockaddr * sockaddr_copy (const struct sockaddr * src)
                                        sockaddr_size(src));
 }
 
+int sockaddr_strrep (const struct sockaddr *sa, char *buffer,
+                     size_t buflen)
+{
+    size_t req_size;
+    const void * src;
+
+    union {
+        const struct sockaddr *sa;
+        const struct sockaddr_in *sa_in;
+        const struct sockaddr_in6 *sa_in6;
+    } addr;
+
+    addr.sa = sa;
+    switch (sa->sa_family) {
+        case AF_INET:
+            req_size = INET_ADDRSTRLEN;
+            src = (const void *) &addr.sa_in->sin_addr;
+            break;
+        case AF_INET6:
+            req_size = INET6_ADDRSTRLEN;
+            src = (const void *) &addr.sa_in6->sin6_addr;
+            break;
+        default:
+            print_err("Address to string", NULL, EAFNOSUPPORT);
+            abort();
+    }
+
+    if (buflen < req_size) return -1;
+    inet_ntop(sa->sa_family, src, buffer, buflen);
+    return req_size;
+}
+
 int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
                       uint16_t port)
 {
@@ -112,3 +146,5 @@ int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
 
     return 0;
 }
+
+

@@ -2,10 +2,11 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 void * mem_renew (void * ptr, size_t size)
 {
-    void * ret = reallo(ptr, size);
+    void * ret = realloc(ptr, size);
     if (ret == NULL) abort();
     return ret;
 }

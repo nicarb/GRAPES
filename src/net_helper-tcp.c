@@ -6,7 +6,14 @@
  */
 
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/epoll.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
+#include <assert.h>
 
 #include "net_helper.h"
 #include "config.h"
@@ -14,6 +21,7 @@
 #include "NetHelper/sockaddr-helpers.h"
 #include "NetHelper/utils.h"
 #include "NetHelper/server.h"
+#include "NetHelper/poll-cb.h"
 
 /* -- Internal data types -------------------------------------------- */
 
@@ -38,8 +46,9 @@ typedef struct nodeID {
 
 /* -- Internal functions --------------------------------------------- */
 
-static local_info_t * local_new (struct sockaddr *addr, const char *cfg);
+static local_info_t * local_new (struct sockaddr *addr, struct tag *cfg);
 static void local_del (local_info_t *l);
+static int local_run_epoll (local_info_t *l, int toutmilli);
 
 /* -- Constants ------------------------------------------------------ */
 
@@ -103,8 +112,8 @@ struct nodeID *create_node (const char *IPaddr, int port)
 
     /* String representation (this part will be updated in the reentrant
      * branch of GRAPES) */
-    inet_ntop(AF_INET, (const void *)&ret->addr.sin_addr,
-              ret->repr.ip, INET_ADDRSTRLEN);
+    sockaddr_strrep((struct sockaddr *)ret->paddr, ret->repr.ip,
+                    INET_ADDRSTRLEN);
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
 
     return ret;
@@ -121,7 +130,6 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
 {
     nodeid_t *self;
     struct tag *cfg;
-    local_info_t *local;
 
     self = create_node(IPaddr, port);
     if (self == NULL) {
@@ -144,27 +152,41 @@ void bind_msg_type(uint8_t msgtype) {}
 int send_to_peer(const struct nodeID *self, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
+    return 0;
 }
 
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
+    return 0;
 }
 
 int wait4data(const struct nodeID *self, struct timeval *tout,
               int *user_fds)
 {
+    unsigned tout_ms;
+
+    assert(self->local != NULL);
+
+    /* ...something in between... */
+
+    tout_ms = tout->tv_sec * 1000 + tout->tv_usec / 1000;
+    local_run_epoll(self->local, tout_ms);
+
+    return 0;
 }
 
 struct nodeID *nodeid_undump (const uint8_t *b, int *len)
 {
     /* TODO: complete. See sockaddr_undump */
+    return NULL;
 }
 
 int nodeid_dump (uint8_t *b, const struct nodeID *s,
                  size_t max_write_size)
 {
     /* TODO: complete. See sockaddr_dump */
+    return 0;
 }
 
 const char *node_ip(const struct nodeID *s)
@@ -241,5 +263,7 @@ int local_run_epoll (local_info_t *l, int toutmilli)
     for (i = 0; i < nev; i ++) {
         pollcb_run((pollcb_t) events[i].data.ptr, l->pollfd);
     }
+
+    return 0;
 }
 
