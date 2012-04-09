@@ -19,7 +19,7 @@ struct server {
 
 static int tcp_serve (const struct sockaddr *srv, int backlog);
 static void * poll_callback (void *context, int epollfd);
-static void update_neighbors (dict_t neighbors, int newfd, int epollfd);
+static int update_neighbors (dict_t neighbors, int newfd, int epollfd);
 
 server_t server_new (const struct sockaddr *addr, int backlog,
                      int epollfd, dict_t neighbors)
@@ -81,10 +81,28 @@ int tcp_serve (const struct sockaddr *srv, int backlog)
 }
 
 static
-void update_neighbors (dict_t neighbors, int newfd, int epollfd)
+int update_neighbors (dict_t neighbors, int newfd, int epollfd)
 {
-    /* TODO: receive real address (?); update neighbors; subscribe
-     *       polling. */
+    struct sockaddr_storage remote;
+    dict_data_t record;
+    int *fd;
+
+    if ((sockaddr_recv_hello((struct sockaddr *) &remote, newfd)) == -1) {
+        return -1;
+    }
+
+    record = dict_search(neighbors, (struct sockaddr *) &remote);
+
+    fd = dict_data_fd(record);
+    if (*fd != -1) {
+        close(*fd);
+        dict_data_update(record);
+    }
+    *fd = newfd;
+
+    /* TODO: subscribe to epollfd */
+
+    return -1;
 }
 
 static
@@ -100,8 +118,8 @@ void * poll_callback (void *context, int epollfd)
     fd = accept(srv->fd, (struct sockaddr *) &addr, &addrlen);
     if (fd == -1) {
         print_err("Adding connection", "accept", errno);
-    } else {
-        update_neighbors(srv->neighbors, fd, epollfd);
+    } else if (update_neighbors(srv->neighbors, fd, epollfd) == -1) {
+        close(fd);
     }
     return context;
 }

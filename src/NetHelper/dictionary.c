@@ -8,6 +8,7 @@
 #include <dacav/dacav.h>
 
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "utils.h"
 #include "dictionary.h"
@@ -144,6 +145,7 @@ static void dict_data_del (void * ptr)
 
 static void reset_if_timeout (dict_data_t dd)
 {
+    /* Makes dd as it were just created */
     if (tout_expired(dd->timeout)) {
         close(dd->fd);
         dd->fd = -1;

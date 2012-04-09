@@ -16,6 +16,7 @@ ssize_t get_size (const struct sockaddr *s)
         case AF_INET6:
             return sizeof(struct sockaddr_in6);
         default:
+            print_err("Address analysis", NULL, EAFNOSUPPORT);
             return -1;
     }
 }
@@ -24,7 +25,6 @@ size_t sockaddr_size (const struct sockaddr *s)
 {
     size_t ret = get_size(s);
     if (ret == -1) {
-        print_err("Address analysis", NULL, EAFNOSUPPORT);
         abort();
     }
     return ret;
@@ -68,7 +68,7 @@ int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src)
 {
     size_t len;
 
-    len = get_size(src);
+    len = sockaddr_size(src);
     if (dstsize < len) return -1;
     memcpy(dst, (const void *)src, len);
 
@@ -81,7 +81,7 @@ int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
     size_t len;
 
     len = get_size((const struct sockaddr *)src);
-    if (dstsize < len) return -1;
+    if (len == -1 || dstsize < len) return -1;
     memcpy((void *)dst, src, len);
 
     return len;
@@ -147,4 +147,25 @@ int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
     return 0;
 }
 
+int sockaddr_send_hello (const struct sockaddr *ouraddr, int fd)
+{
+    struct sockaddr_storage out;
 
+    memcpy((void *)&out, (const void *) ouraddr, sockaddr_size(ouraddr));
+    return send_forced(fd, (const uint8_t *)&out, sizeof(out));
+}
+
+int sockaddr_recv_hello (struct sockaddr *theiraddr, int fd)
+{
+    struct sockaddr_storage in;
+    ssize_t len;
+
+    if (recv_forced(fd, (uint8_t *)&in, sizeof(in)) == -1) {
+        return -1;
+    }
+    if ((len = get_size((const struct sockaddr *)&in)) == -1) {
+        return -1;
+    }
+    memcpy((void *)theiraddr, (const void *)&in, len);
+    return 0;
+}

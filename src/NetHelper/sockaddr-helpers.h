@@ -23,6 +23,12 @@ struct sockaddr * sockaddr_copy (const struct sockaddr * src);
 
 int sockaddr_strrep (const struct sockaddr *, char *buffer, size_t buflen);
 
+int sockaddr_send_hello (const struct sockaddr *ouraddr, int fd);
+
+int sockaddr_recv_hello (struct sockaddr *theiraddr, int fd);
+
+/* Specific calls for sockaddr_in */
+
 int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
                       uint16_t port);
 
