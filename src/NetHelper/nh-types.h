@@ -16,9 +16,9 @@ typedef struct {
 } header_t;
 
 typedef struct {
-    int fd;
-    const struct sockaddr *addr;
-} connection_t;
+    const void * data;
+    size_t size;
+} msg_buf_t;
 
 #endif // NH_TYPES_H
 

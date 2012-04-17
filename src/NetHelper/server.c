@@ -94,11 +94,17 @@ int update_neighbors (dict_t neighbors, int clnfd, int epollfd)
     client = (client_t *) dict_data_user(record);
 
     if (*client == NULL) {
-        *client = client_new(clnfd, epollfd);
-        // TODO: *client == NULL ?
-        // also: update via client_setfd() ?
+        if ((*client = client_new(clnfd, epollfd)) == NULL) {
+            return -1;
+        }
     } else {
+        /* I already know this guy, so he knows me. Why is he calling me
+         * back again? Replace the client file descriptor. This is a
+         * corner case and totally unlikely, but if we stumble into it
+         * we'll have to wait a long period before the timeout kills both
+         * connections */
         dict_data_update(record);
+        client_setfd(*client, clnfd);
     }
 
     return 0;

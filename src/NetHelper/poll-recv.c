@@ -56,7 +56,7 @@ poll_recv_t poll_recv_new (int fd, int epollfd)
 }
 
 poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
-                                    const poll_recv_buf_t **out)
+                                    const msg_buf_t **out)
 {
     *out = NULL;
     switch (pr->state) {
@@ -72,7 +72,7 @@ poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
         return POLL_RECV_FAIL;
     }
 
-    *out = (const poll_recv_buf_t *) &pr->buffer;
+    *out = (const msg_buff_t *) &pr->buffer;
     return POLL_RECV_SUCCESS;
 }
 

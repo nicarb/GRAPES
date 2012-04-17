@@ -44,8 +44,7 @@ poll_send_t poll_send_new (int fd, int epollfd)
     return ret;
 }
 
-poll_send_res_t poll_send_enqueue (poll_send_t ps, const void * buffer,
-                                   size_t size)
+poll_send_res_t poll_send_enqueue (poll_send_t ps, msg_buff_t *msg)
 {
     switch (ps->state) {
         case IDLE:
@@ -57,10 +56,10 @@ poll_send_res_t poll_send_enqueue (poll_send_t ps, const void * buffer,
     }
 
     ps->buffer = (uint8_t *) mem_renew((void *)ps->buffer, size);
-    memcpy((void *)ps->buffer, buffer, size);
-    ps->buflen = size;
+    memcpy((void *)ps->buffer, msg->data, size);
+    ps->buflen = msg->size;
     ps->sent = 0;
-    header_set_size(&ps->hdr, size);
+    header_set_size(&ps->hdr, msg->size);
     ps->state = SENDING_HDR;
 
     if (pollcb_enable(ps->pcb, EPOLLOUT) == -1) {

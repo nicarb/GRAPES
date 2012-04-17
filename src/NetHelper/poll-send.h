@@ -13,8 +13,7 @@ typedef enum {
 
 poll_send_t poll_send_new (int fd, int epollfd);
 
-poll_send_res_t poll_send_enqueue (poll_send_t ps, const void * buffer,
-                                   size_t size);
+poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg);
 
 void poll_send_del (poll_send_t ps);
 
