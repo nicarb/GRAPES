@@ -10,35 +10,32 @@
 #include "sockaddr-helpers.h"
 
 #include "server.h"
+#include "client.h"
 
 struct server {
-    int fd;
     pollcb_t cb;
     dict_t neighbors;
 };
 
 static int tcp_serve (const struct sockaddr *srv, int backlog);
-static void * poll_callback (void *context, int epollfd);
-static int update_neighbors (dict_t neighbors, int newfd, int epollfd);
+static void * poll_callback (void *context, int fd, int epollfd);
+static int update_neighbors (dict_t neighbors, int clnfd, int epollfd);
 
 server_t server_new (const struct sockaddr *addr, int backlog,
                      int epollfd, dict_t neighbors)
 {
     server_t srv;
-    struct epoll_event ev;
     int fd;
 
     fd = tcp_serve(addr, backlog);
     if (fd == -1) return NULL;
 
     srv = mem_new(sizeof(struct server));
-    srv->fd = fd;
-    srv->cb = pollcb_new(poll_callback, (void *) srv);
     srv->neighbors = neighbors;
+    srv->cb = pollcb_new(poll_callback, (void *)srv, fd, epollfd);
+    close(fd);  /* Note: fd is dup()licated inside pollcb_new */
 
-    ev.events = EPOLLIN;
-    ev.data.ptr = srv->cb;
-    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &ev) == -1) {
+    if (pollcb_enable(srv->cb, EPOLLIN) == -1) {
         print_err("Creating server", "epoll_ctl", errno);
         server_del(srv);
         return NULL;
@@ -49,8 +46,10 @@ server_t server_new (const struct sockaddr *addr, int backlog,
 
 void server_del (server_t srv)
 {
-    close(srv->fd);
-    pollcb_del(srv->cb);
+    if (srv == NULL) return;
+    if (srv->cb != NULL) {
+        pollcb_del(srv->cb);
+    }
     free(srv);
 }
 
@@ -81,46 +80,47 @@ int tcp_serve (const struct sockaddr *srv, int backlog)
 }
 
 static
-int update_neighbors (dict_t neighbors, int newfd, int epollfd)
+int update_neighbors (dict_t neighbors, int clnfd, int epollfd)
 {
     struct sockaddr_storage remote;
     dict_data_t record;
-    int *fd;
+    client_t *client;
 
-    if ((sockaddr_recv_hello((struct sockaddr *) &remote, newfd)) == -1) {
+    if ((sockaddr_recv_hello((struct sockaddr *) &remote, clnfd)) == -1) {
         return -1;
     }
 
     record = dict_search(neighbors, (struct sockaddr *) &remote);
+    client = (client_t *) dict_data_user(record);
 
-    fd = dict_data_fd(record);
-    if (*fd != -1) {
-        close(*fd);
+    if (*client == NULL) {
+        *client = client_new(clnfd, epollfd);
+        // TODO: *client == NULL ?
+        // also: update via client_setfd() ?
+    } else {
         dict_data_update(record);
     }
-    *fd = newfd;
 
-    /* TODO: subscribe to epollfd */
-
-    return -1;
+    return 0;
 }
 
 static
-void * poll_callback (void *context, int epollfd)
+void * poll_callback (void *context, int srvfd, int epollfd)
 {
     server_t srv;
     struct sockaddr_storage addr;
     socklen_t addrlen;
-    int fd;
+    int clnfd;
 
     srv = (server_t) context;
     addrlen = sizeof(struct sockaddr_storage);
-    fd = accept(srv->fd, (struct sockaddr *) &addr, &addrlen);
-    if (fd == -1) {
+    clnfd = accept(srvfd, (struct sockaddr *) &addr, &addrlen);
+    if (clnfd == -1) {
         print_err("Adding connection", "accept", errno);
-    } else if (update_neighbors(srv->neighbors, fd, epollfd) == -1) {
-        close(fd);
+    } else if (update_neighbors(srv->neighbors, clnfd, epollfd) == -1) {
+        close(clnfd);
     }
+
     return context;
 }
 

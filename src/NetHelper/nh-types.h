@@ -9,6 +9,11 @@
 #define NH_TYPES_H
 
 #include <arpa/inet.h>
+#include <stdint.h>
+
+typedef struct {
+    uint32_t size;
+} header_t;
 
 typedef struct {
     int fd;

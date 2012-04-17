@@ -22,6 +22,7 @@
 #include "NetHelper/utils.h"
 #include "NetHelper/server.h"
 #include "NetHelper/poll-cb.h"
+#include "NetHelper/client.h"
 
 /* -- Internal data types -------------------------------------------- */
 
@@ -224,7 +225,8 @@ local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
                                  DEFAULT_BACKLOG);
     }
 
-    if ((L->neighbors = dict_new(cfg)) == NULL) {
+    if ((L->neighbors = dict_new(cfg, (dict_delcb_t) client_del,
+                                 (dict_pred_t) client_valid)) == NULL) {
         local_del(L);
         return NULL;
     }
@@ -261,7 +263,7 @@ int local_run_epoll (local_info_t *l, int toutmilli)
     }
 
     for (i = 0; i < nev; i ++) {
-        pollcb_run((pollcb_t) events[i].data.ptr, l->pollfd);
+        pollcb_run((pollcb_t) events[i].data.ptr);
     }
 
     return 0;

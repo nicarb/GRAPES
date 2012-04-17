@@ -1,10 +1,15 @@
 #include "utils.h"
+#include "nh-types.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
+#include <arpa/inet.h>
+
+/* 4 MiB, is this reasonable? */
+static const size_t MAX_MESSAGE_SIZE = 1<<22;   
 
 void * mem_renew (void * ptr, size_t size)
 {
@@ -70,3 +75,19 @@ int recv_forced (int fd, uint8_t * buffer, size_t buflen)
     return 0;
 }
 
+ssize_t header_get_size (header_t *hdr)
+{
+    size_t ret;
+
+    ret = ntohl(hdr->size);
+    if (ret > MAX_MESSAGE_SIZE) {
+        print_err("poll-recv", NULL, EMSGSIZE);
+        return -1;
+    }
+    return (ssize_t) ret;
+}
+
+void header_set_size (header_t *hdr, size_t s)
+{
+    hdr->size = htonl(s);
+}

@@ -82,6 +82,7 @@ dict_t dict_new (struct tag *cfg, dict_delcb_t del, dict_pred_t valid)
 
 void dict_del (dict_t d)
 {
+    if (d == NULL) return;
     dhash_free(d->hash);
 }
 
@@ -135,6 +136,7 @@ static void dict_data_del (void * ptr)
 {
     dict_data_t d;
 
+    if (ptr == NULL) return;
     d = (dict_data_t) ptr;
     tout_del(d->timeout);
     if (d->user.del) {

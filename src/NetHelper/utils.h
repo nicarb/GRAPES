@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "nh-types.h"
+
 /* like calling malloc, just abort()s if return null */
 void * mem_new (size_t size);
 
@@ -23,6 +25,10 @@ int send_forced (int fd, const uint8_t * buffer, size_t buflen);
 /* receive until completed, return 0 or -1 on success and failure
  * respectively */
 int recv_forced (int fd, uint8_t * buffer, size_t buflen);
+
+ssize_t header_get_size (header_t *hdr);
+
+void header_set_size (header_t *hdr, size_t s);
 
 #endif // UTILS_H
 
