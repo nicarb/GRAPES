@@ -19,15 +19,18 @@ struct dict {
     dhash_t *hash;
     size_t count;
     unsigned tout_minutes;
+    struct {
+        dict_delcb_t del;
+        dict_pred_t valid;
+    } cbacks;
 };
 
 struct dict_data {
     tout_t timeout;
-    int fd;
     struct {
-        void *bytes;
-        size_t size;
-    } buffer;
+        void *data;
+        dict_delcb_t del;
+    } user;
 };
 
 static const unsigned DEFAULT_BUCKETS = 17;
@@ -39,9 +42,10 @@ static const char CONF_KEY_TOUT_MINUTES[] = "TCPTimeoutMinutes";
 static void * dict_data_new (void * ctx);
 static void dict_data_del (void * ptr);
 static void * dict_data_copy (const void * ptr);
-static void reset_if_timeout (dict_data_t dd);
+static int dict_data_valid (dict_data_t data, dict_pred_t user_check);
+static void dict_data_reset (dict_data_t data);
 
-dict_t dict_new (struct tag *cfg)
+dict_t dict_new (struct tag *cfg, dict_delcb_t del, dict_pred_t valid)
 {
     dict_t d;
     int nbuckets, tout_minutes;
@@ -70,6 +74,8 @@ dict_t dict_new (struct tag *cfg)
                         &cprm_k, &cprm_v);
     d->count = 0;
     d->tout_minutes = tout_minutes;
+    d->cbacks.del = del;
+    d->cbacks.valid = valid;
 
     return d;
 }
@@ -85,28 +91,20 @@ dict_data_t dict_search (dict_t d, const struct sockaddr *addr)
 
     dhash_search_default(d->hash, (const void *)addr, (void **) &out,
                          dict_data_new, (void *)d);
-    reset_if_timeout(out);
-    return out;
-}
-
-int * dict_data_fd (dict_data_t dd)
-{
-    return &dd->fd;
-}
-
-uint8_t * dict_data_buffer (dict_data_t dd, size_t size)
-{
-    if (dd->buffer.size < size) {
-        dd->buffer.bytes = mem_renew(dd->buffer.bytes, size);
-        dd->buffer.size = size;
+    if (!dict_data_valid(out, d->cbacks.valid)) {
+        dict_data_reset(out);
     }
-
-    return (uint8_t *) dd->buffer.bytes;
+    return out;
 }
 
 void dict_data_update (dict_data_t dd)
 {
     tout_reset(dd->timeout);
+}
+
+void ** dict_data_user (dict_data_t dd)
+{
+    return &dd->user.data;
 }
 
 static void * dict_data_new (void * ctx)
@@ -121,9 +119,8 @@ static void * dict_data_new (void * ctx)
 
     ret = mem_new(sizeof(struct dict_data));
     ret->timeout = tout_new(&tout);
-    ret->fd = -1;
-    ret->buffer.size = 0;
-    ret->buffer.bytes = NULL;
+    ret->user.data = NULL;
+    ret->user.del = dict->cbacks.del;
 
     return (void *)ret;
 }
@@ -140,15 +137,25 @@ static void dict_data_del (void * ptr)
 
     d = (dict_data_t) ptr;
     tout_del(d->timeout);
-    free(d->buffer.bytes);
-}
-
-static void reset_if_timeout (dict_data_t dd)
-{
-    /* Makes dd as it were just created */
-    if (tout_expired(dd->timeout)) {
-        close(dd->fd);
-        dd->fd = -1;
-        tout_reset(dd->timeout);
+    if (d->user.del) {
+        d->user.del(d->user.data);
     }
 }
+
+static int dict_data_valid (dict_data_t data, dict_pred_t user_check)
+{
+    if (tout_expired(data->timeout)) return 0;
+    if (user_check && !user_check(data->user.data)) return 0;
+    return 1;
+}
+
+static void dict_data_reset (dict_data_t data)
+{
+    tout_reset(data->timeout);
+    if (data->user.del) {
+        data->user.del(data->user.data);
+    }
+    data->user.data = NULL;
+}
+
+/* TODO: cycling with garbage collector still missing */
