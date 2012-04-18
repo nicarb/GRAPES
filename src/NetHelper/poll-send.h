@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#include "nh-types.h"
+
 typedef struct poll_send * poll_send_t;
 
 typedef enum {

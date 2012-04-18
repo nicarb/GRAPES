@@ -72,7 +72,7 @@ poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
         return POLL_RECV_FAIL;
     }
 
-    *out = (const msg_buff_t *) &pr->buffer;
+    *out = (const msg_buf_t *) &pr->buffer;
     return POLL_RECV_SUCCESS;
 }
 

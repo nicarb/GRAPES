@@ -2,6 +2,7 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "utils.h"
 #include "poll-cb.h"

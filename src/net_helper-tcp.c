@@ -244,9 +244,10 @@ static
 void local_del (local_info_t *L)
 {
     if (-- L->refcount > 0) return;
-    if (L->pollfd != -1) close(L->pollfd);
-    if (L->server) server_del(L->server);
-    if (L->neighbors) dict_del(L->neighbors);
+
+    close(L->pollfd);
+    server_del(L->server);
+    dict_del(L->neighbors);
     free(L);
 }
 

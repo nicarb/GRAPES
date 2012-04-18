@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include "client.h"
 #include "utils.h"
 #include "poll-send.h"
@@ -7,6 +9,7 @@ struct client {
     poll_send_t send;
     poll_recv_t recv;
     int epollfd;
+
     unsigned broken : 1;
 };
 
@@ -50,6 +53,7 @@ const msg_buf_t * client_read (client_t cl)
         case POLL_RECV_BUSY:
             return NULL;
         case POLL_RECV_SUCCESS:
+        default:
             return ret;
     }
 }
@@ -62,6 +66,7 @@ int client_write (client_t cl, const msg_buf_t *msg)
         case POLL_SEND_BUSY:
             return -1;
         case POLL_SEND_SUCCESS:
+        default:
             return 0;
     }
 }

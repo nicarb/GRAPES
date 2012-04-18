@@ -19,7 +19,7 @@ tout_t tout_new (const struct timeval *timeout)
 
     memcpy((void *)&ret->period, (const void *)timeout,
            sizeof(struct timeval));
-    tout_update(ret);
+    tout_reset(ret);
 
     return ret;
 }
@@ -29,7 +29,7 @@ tout_t tout_copy (const tout_t t)
     tout_t ret;
 
     ret = mem_dup(t, sizeof(struct tout));
-    tout_update(ret);
+    tout_reset(ret);
 
     return ret;
 }

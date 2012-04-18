@@ -44,7 +44,7 @@ poll_send_t poll_send_new (int fd, int epollfd)
     return ret;
 }
 
-poll_send_res_t poll_send_enqueue (poll_send_t ps, msg_buff_t *msg)
+poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg)
 {
     switch (ps->state) {
         case IDLE:
@@ -55,8 +55,8 @@ poll_send_res_t poll_send_enqueue (poll_send_t ps, msg_buff_t *msg)
             return POLL_SEND_BUSY;
     }
 
-    ps->buffer = (uint8_t *) mem_renew((void *)ps->buffer, size);
-    memcpy((void *)ps->buffer, msg->data, size);
+    ps->buffer = (uint8_t *) mem_renew((void *)ps->buffer, msg->size);
+    memcpy((void *)ps->buffer, msg->data, msg->size);
     ps->buflen = msg->size;
     ps->sent = 0;
     header_set_size(&ps->hdr, msg->size);
