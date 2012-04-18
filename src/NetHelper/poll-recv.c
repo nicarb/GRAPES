@@ -55,6 +55,11 @@ poll_recv_t poll_recv_new (int fd, int epollfd)
     return ret;
 }
 
+int poll_recv_is_alive (poll_recv_t pr)
+{
+    return pollcb_is_alive(pr->pcb);
+}
+
 poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
                                     const msg_buf_t **out)
 {

@@ -44,6 +44,11 @@ poll_send_t poll_send_new (int fd, int epollfd)
     return ret;
 }
 
+int poll_send_is_alive (poll_send_t ps)
+{
+    return pollcb_is_alive(ps->pcb);
+}
+
 poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg)
 {
     switch (ps->state) {

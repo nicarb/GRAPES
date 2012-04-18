@@ -67,3 +67,9 @@ int pollcb_disable (pollcb_t p)
     return 0;
 }
 
+int pollcb_is_alive (pollcb_t p)
+{
+    /* Both file descriptors are still valid */
+    return (fcntl(p->fd, F_GETFD) != -1) &&
+           (fcntl(p->epollfd, F_GETFD) != -1);
+}

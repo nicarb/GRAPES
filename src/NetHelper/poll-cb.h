@@ -18,5 +18,7 @@ int pollcb_enable (pollcb_t p, uint32_t events);
 
 int pollcb_disable (pollcb_t p);
 
+int pollcb_is_alive (pollcb_t p);
+
 #endif // POLL_CB_H
 

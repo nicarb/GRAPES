@@ -40,7 +40,9 @@ void client_setfd (client_t cl, int newfd)
 
 int client_valid (client_t cl)
 {
-    return cl->broken;
+    return poll_send_is_alive(cl->send) &&
+           poll_recv_is_alive(cl->recv) &&
+           ! cl->broken;
 }
 
 const msg_buf_t * client_read (client_t cl)
