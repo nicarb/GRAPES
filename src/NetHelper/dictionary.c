@@ -52,7 +52,7 @@ dict_t dict_new (struct tag *cfg, dict_delcb_t del, dict_pred_t valid)
                                  DEFAULT_BUCKETS);
     }
 
-    cprm_k.cp = (dcopy_cb_t) sockaddr_copy;
+    cprm_k.cp = (dcopy_cb_t) sockaddr_dup;
     cprm_k.rm = free;
 
     cprm_v.cp = dict_data_copy;

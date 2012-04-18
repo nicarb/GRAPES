@@ -19,7 +19,10 @@ int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src);
 int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
                      const void *src);
 
-struct sockaddr * sockaddr_copy (const struct sockaddr * src);
+struct sockaddr * sockaddr_copy (struct sockaddr *dst, 
+                                 const struct sockaddr * src);
+
+struct sockaddr * sockaddr_dup (const struct sockaddr *src);
 
 int sockaddr_strrep (const struct sockaddr *, char *buffer, size_t buflen);
 

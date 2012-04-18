@@ -87,7 +87,14 @@ int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
     return len;
 }
 
-struct sockaddr * sockaddr_copy (const struct sockaddr * src)
+struct sockaddr * sockaddr_copy (struct sockaddr *dst, 
+                                 const struct sockaddr * src)
+{
+    memcpy((void *)dst, (const void *)src, sockaddr_size(src));
+    return dst;
+}
+
+struct sockaddr * sockaddr_dup (const struct sockaddr *src)
 {
     return (struct sockaddr *) mem_dup((const void *)src,
                                        sockaddr_size(src));

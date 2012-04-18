@@ -1,7 +1,9 @@
 #include <unistd.h>
+#include <assert.h>
 
 #include "client.h"
 #include "utils.h"
+#include "sockaddr-helpers.h"
 #include "poll-send.h"
 #include "poll-recv.h"
 #include "timeout.h"
@@ -13,11 +15,14 @@ struct client {
     poll_recv_t recv;
     int epollfd;
     tout_t tout;
+    struct sockaddr_storage addr;
 
     unsigned broken : 1;
+    unsigned enqueued : 1;
 };
 
-client_t client_new (int clientfd, int epollfd)
+client_t client_new (int clientfd, int epollfd,
+                     const struct sockaddr *addr)
 {
     client_t ret;
     struct timeval max_tout;
@@ -26,6 +31,7 @@ client_t client_new (int clientfd, int epollfd)
     ret->send = NULL;
     ret->recv = NULL;
     ret->epollfd = epollfd;
+    sockaddr_copy((struct sockaddr *)&ret->addr, addr);
     ret->broken = 0;
 
     max_tout.tv_sec = CLIENT_TIMEOUT_MINUTES * 60;
@@ -35,6 +41,11 @@ client_t client_new (int clientfd, int epollfd)
     client_setfd(ret, clientfd);
 
     return ret;
+}
+
+const struct sockaddr * client_get_addr (client_t cl)
+{
+    return (const struct sockaddr *) &cl->addr;
 }
 
 void client_setfd (client_t cl, int newfd)

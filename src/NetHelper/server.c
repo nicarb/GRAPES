@@ -94,7 +94,8 @@ int update_neighbors (dict_t neighbors, int clnfd, int epollfd)
     client = (client_t *) dict_data_user(record);
 
     if (*client == NULL) {
-        if ((*client = client_new(clnfd, epollfd)) == NULL) {
+        if ((*client = client_new(clnfd, epollfd,
+                (struct sockaddr *)&remote)) == NULL) {
             return -1;
         }
     } else {
