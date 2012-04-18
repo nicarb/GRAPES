@@ -69,9 +69,19 @@ int client_valid (client_t cl)
         If this is done a broken poll-recv carrying a message could be
         deallocated by the dictionary-based garbage collector, hence
         making the message queue referencing a deallocated memory area.
+
+        UPDATE:
+        There's still need to track if the element is enqueued or not,
+        thus the `enqueued` flag. Still the invariant MUST hold.
      */
-    if (poll_recv_is_alive(cl->recv)) return 1;
-    return poll_send_is_alive(cl->send) &&
+
+    if (cl->enqueued) {
+        assert(poll_recv_is_alive(cl->recv));
+        return 1;
+    }
+
+    return poll_recv_is_alive(cl->recv) &&
+           poll_send_is_alive(cl->send) &&
            !(tout_expired(cl->tout) || cl->broken);
 }
 
@@ -108,6 +118,15 @@ int client_write (client_t cl, const msg_buf_t *msg)
         default:
             return 0;
     }
+}
+
+int client_flag_enqueued (client_t cl, int val)
+{
+    int ret;
+
+    ret = cl->enqueued;
+    cl->enqueued = val;
+    return ret;
 }
 
 void client_del (client_t cl)

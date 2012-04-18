@@ -22,6 +22,8 @@ int client_write (client_t cl, const msg_buf_t *msg);
 
 const struct sockaddr * client_get_addr (client_t cl);
 
+int client_flag_enqueued (client_t cl, int val);
+
 void client_del (client_t cl);
 
 #endif // CLIENT_H
