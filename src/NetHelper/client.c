@@ -4,11 +4,15 @@
 #include "utils.h"
 #include "poll-send.h"
 #include "poll-recv.h"
+#include "timeout.h"
+
+static const unsigned CLIENT_TIMEOUT_MINUTES = 10;
 
 struct client {
     poll_send_t send;
     poll_recv_t recv;
     int epollfd;
+    tout_t tout;
 
     unsigned broken : 1;
 };
@@ -16,12 +20,17 @@ struct client {
 client_t client_new (int clientfd, int epollfd)
 {
     client_t ret;
+    struct timeval max_tout;
 
     ret = mem_new(sizeof(struct client));
     ret->send = NULL;
     ret->recv = NULL;
     ret->epollfd = epollfd;
     ret->broken = 0;
+
+    max_tout.tv_sec = CLIENT_TIMEOUT_MINUTES * 60;
+    max_tout.tv_usec = 0;
+    ret->tout = tout_new(&max_tout);
 
     client_setfd(ret, clientfd);
 
@@ -51,7 +60,8 @@ int client_valid (client_t cl)
         making the message queue referencing a deallocated memory area.
      */
     if (poll_recv_is_alive(cl->recv)) return 1;
-    return poll_send_is_alive(cl->send) && !cl->broken;
+    return poll_send_is_alive(cl->send) &&
+           !(tout_expired(cl->tout) || cl->broken);
 }
 
 const msg_buf_t * client_read (client_t cl)
@@ -65,6 +75,7 @@ const msg_buf_t * client_read (client_t cl)
             return NULL;
         case POLL_RECV_SUCCESS:
         default:
+            tout_reset(cl->tout);
             return ret;
     }
 }
@@ -76,6 +87,7 @@ int client_has_message (client_t cl)
 
 int client_write (client_t cl, const msg_buf_t *msg)
 {
+    tout_reset(cl->tout);
     switch (poll_send_enqueue(cl->send, msg)) {
         case POLL_SEND_FAIL:
             cl->broken = 1;
@@ -93,5 +105,6 @@ void client_del (client_t cl)
 
     poll_send_del(cl->send);
     poll_recv_del(cl->recv);
+    tout_del(cl->tout);
 }
 

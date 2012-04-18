@@ -32,8 +32,6 @@ void dict_foreach (dict_t, dict_foreach_t cb, void * ctx);
 
 int * dict_data_fd (dict_data_t);
 
-void dict_data_update (dict_data_t);
-
 void ** dict_data_user (dict_data_t);
 
 #endif // DICTIONARY_H

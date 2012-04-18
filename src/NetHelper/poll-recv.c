@@ -96,6 +96,7 @@ poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
 void poll_recv_del (poll_recv_t pr)
 {
     if (pr == NULL) return;
+
     pollcb_del(pr->pcb);
     free(pr->buffer.bytes);
     free(pr);
