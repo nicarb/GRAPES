@@ -184,4 +184,3 @@ static void dict_data_reset (dict_data_t data)
     data->user.data = NULL;
 }
 
-

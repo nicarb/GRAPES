@@ -55,9 +55,21 @@ poll_recv_t poll_recv_new (int fd, int epollfd)
     return ret;
 }
 
+int poll_recv_has_message (poll_recv_t pr)
+{
+    return pr->state == COMPLETE;
+}
+
 int poll_recv_is_alive (poll_recv_t pr)
 {
-    return pollcb_is_alive(pr->pcb);
+    switch (pr->state) {
+        case COMPLETE:
+            return 1;
+        case ERROR:
+            return 0;
+        default:
+            return pollcb_is_alive(pr->pcb);
+    }
 }
 
 poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
@@ -74,7 +86,7 @@ poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
     }
 
     if (pollcb_enable(pr->pcb, EPOLLIN) == -1) {
-        return POLL_RECV_FAIL;
+        pr->state = ERROR;
     }
 
     *out = (const msg_buf_t *) &pr->buffer;

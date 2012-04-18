@@ -16,6 +16,8 @@ poll_recv_t poll_recv_new (int fd, int epollfd);
 
 poll_recv_res_t poll_recv_retrieve (poll_recv_t pr, const msg_buf_t **out);
 
+int poll_recv_has_message (poll_recv_t pr);
+
 int poll_recv_is_alive (poll_recv_t pr);
 
 void poll_recv_del (poll_recv_t ps);

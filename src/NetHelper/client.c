@@ -40,9 +40,18 @@ void client_setfd (client_t cl, int newfd)
 
 int client_valid (client_t cl)
 {
-    return poll_send_is_alive(cl->send) &&
-           poll_recv_is_alive(cl->recv) &&
-           ! cl->broken;
+    /* NOTE:
+        The client is alive as long as both the poll-send and the
+        poll-recv are alive. However a poll-recv instance remains alive
+        until holding a message even if its file descriptor is broken.
+        Thus we need to check it before its poll-send counterpart.
+
+        If this is done a broken poll-recv carrying a message could be
+        deallocated by the dictionary-based garbage collector, hence
+        making the message queue referencing a deallocated memory area.
+     */
+    if (poll_recv_is_alive(cl->recv)) return 1;
+    return poll_send_is_alive(cl->send) && !cl->broken;
 }
 
 const msg_buf_t * client_read (client_t cl)
@@ -58,6 +67,11 @@ const msg_buf_t * client_read (client_t cl)
         default:
             return ret;
     }
+}
+
+int client_has_message (client_t cl)
+{
+    return poll_recv_has_message(cl->recv);
 }
 
 int client_write (client_t cl, const msg_buf_t *msg)
