@@ -27,6 +27,7 @@ struct dict {
 
 struct dict_data {
     tout_t timeout;
+    uint32_t flags;
     struct {
         void *data;
         dict_delcb_t del;
@@ -108,6 +109,28 @@ void ** dict_data_user (dict_data_t dd)
     return &dd->user.data;
 }
 
+void dict_foreach (dict_t d, dict_foreach_t cb, void * ctx)
+{
+    diter_t *iter;
+
+    iter = dhash_iter_new(d->hash);
+    while (diter_hasnext(iter)) {
+        dhash_pair_t *P;
+        dict_data_t data;
+
+        P = diter_next(iter);
+        data = dhash_val(P);
+        if (!dict_data_valid(data, d->cbacks.valid)) {
+            diter_remove(iter);
+            continue;
+        }
+        if (cb(ctx, dhash_key(P), data->user.data, &data->flags) == 0) {
+            break;
+        }
+    }
+    dhash_iter_free(iter);
+}
+
 static void * dict_data_new (void * ctx)
 {
     dict_t dict;
@@ -120,6 +143,7 @@ static void * dict_data_new (void * ctx)
 
     ret = mem_new(sizeof(struct dict_data));
     ret->timeout = tout_new(&tout);
+    ret->flags = 0;
     ret->user.data = NULL;
     ret->user.del = dict->cbacks.del;
 
@@ -160,4 +184,4 @@ static void dict_data_reset (dict_data_t data)
     data->user.data = NULL;
 }
 
-/* TODO: cycling with garbage collector still missing */
+
