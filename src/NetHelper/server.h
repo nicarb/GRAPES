@@ -10,7 +10,7 @@ typedef struct server * server_t;
  * @param[in] addr
  * @param[in] backlig
  * @param[in] epollfmd
- * @param[in] 
+ * @param[in] neighbours
  *
  * @return 
  *

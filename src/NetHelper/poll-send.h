@@ -13,9 +13,10 @@ typedef enum {
     POLL_SEND_BUSY = 1
 } poll_send_res_t;
 
-/** 
+/** Create a new poll
  *
- * @param[in] 
+ * @param[in] fd
+ * @param[in] epollfd
  *
  * @return 
  *
@@ -23,9 +24,10 @@ typedef enum {
  */
 poll_send_t poll_send_new (int fd, int epollfd);
 
-/** 
+/** Enqueues message when it's ready for sending.
  *
- * @param[in] 
+ * @param[in] ps
+ * @param[in] msg
  *
  * @return 
  *
@@ -33,9 +35,9 @@ poll_send_t poll_send_new (int fd, int epollfd);
  */
 poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg);
 
-/** 
+/** Check if poll is still alive...
  *
- * @param[in] 
+ * @param[in] ps
  *
  * @return 
  *
@@ -43,11 +45,10 @@ poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg);
  */
 int poll_send_is_alive (poll_send_t ps);
 
-/** 
+/** Delete the datastructure...
  *
  * @param[in] 
  *
- * @return 
  *
  * @see 
  */

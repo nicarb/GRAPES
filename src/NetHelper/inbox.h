@@ -4,6 +4,10 @@
 #include "dictionary.h"
 #include "client.h"
 
+/* 
+   This module provides relative datastructure for the inbox management.
+ */
+
 typedef struct inbox * inbox_t;
 
 /** 

@@ -5,9 +5,11 @@
 
 typedef struct client * client_t;
 
-/** 
+/** Create a new client
  *
- * @param[in] 
+ * @param[in] clientfd
+ * @param[in] epollfd
+ * @param[in] addr
  *
  * @return 
  *
@@ -16,10 +18,11 @@ typedef struct client * client_t;
 client_t client_new (int clientfd, int epollfd,
                      const struct sockaddr *addr);
 
-/* Change file descriptor if needed */
-/** 
- *
- * @param[in] 
+/** Set fd to the client. 
+ * Change file descriptor if needed
+ * 
+ * @param[in] cl
+ * @param[in] newfd
  *
  * @return 
  *
@@ -27,10 +30,10 @@ client_t client_new (int clientfd, int epollfd,
  */
 void client_setfd (client_t cl, int newfd);
 
-/* For dictionary validity */
-/** 
+
+/** Check for dictionary validity of the client
  *
- * @param[in] 
+ * @param[in] cl
  *
  * @return 
  *
@@ -38,9 +41,9 @@ void client_setfd (client_t cl, int newfd);
  */
 int client_valid (client_t cl);
 
-/** 
+/** Check if client has got a complete message to deliver
  *
- * @param[in] 
+ * @param[in] cl
  *
  * @return 
  *
@@ -48,9 +51,9 @@ int client_valid (client_t cl);
  */
 int client_has_message (client_t cl);
 
-/** 
+/** Read the message
  *
- * @param[in] 
+ * @param[in] cl
  *
  * @return 
  *
