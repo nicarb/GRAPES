@@ -5,6 +5,7 @@
 
 typedef struct client * client_t;
 
+/* clientfd == -1 -> connect */
 client_t client_new (int clientfd, int epollfd,
                      const struct sockaddr *addr);
 

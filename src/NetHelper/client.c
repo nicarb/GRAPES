@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <assert.h>
+#include <errno.h>
 
 #include "client.h"
 #include "utils.h"
@@ -21,6 +22,8 @@ struct client {
     unsigned enqueued : 1;
 };
 
+static int tcp_connect (const struct sockaddr *to);
+
 client_t client_new (int clientfd, int epollfd,
                      const struct sockaddr *addr)
 {
@@ -37,6 +40,13 @@ client_t client_new (int clientfd, int epollfd,
     max_tout.tv_sec = CLIENT_TIMEOUT_MINUTES * 60;
     max_tout.tv_usec = 0;
     ret->tout = tout_new(&max_tout);
+
+    if (clientfd == -1) {
+        clientfd = tcp_connect(addr);
+        if (clientfd == -1) {
+            client_del(ret);
+        }
+    }
 
     client_setfd(ret, clientfd);
 
@@ -136,5 +146,25 @@ void client_del (client_t cl)
     poll_send_del(cl->send);
     poll_recv_del(cl->recv);
     tout_del(cl->tout);
+}
+
+static
+int tcp_connect (const struct sockaddr *to)
+{
+    int fd;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == -1) {
+        print_err("Connecting", "socket", errno);
+        return -1;
+    }
+
+    if (connect(fd, to, sockaddr_size(to)) == -1) {
+        print_err("Connecting", "connect", errno);
+        close(fd);
+        return -1;
+    }
+
+    return fd;
 }
 

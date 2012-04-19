@@ -104,7 +104,8 @@ int update_neighbors (dict_t neighbors, int clnfd, int epollfd)
          * surprises. This is a corner case and totally unlikely, but if
          * we stumble into it we'll have to wait a long period before the
          * timeout kills both connections. Why taking the risk? */
-        client_setfd(*client, clnfd); }
+        client_setfd(*client, clnfd);
+    }
 
     return 0;
 }

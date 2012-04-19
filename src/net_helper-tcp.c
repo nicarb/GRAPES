@@ -172,7 +172,35 @@ void bind_msg_type(uint8_t msgtype) {}
 int send_to_peer(const struct nodeID *self, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
-    return 0;
+    local_info_t *local;
+    client_t *client;
+    dict_data_t record;
+    const msg_buf_t msg = {
+        .data = (const void *)buffer_ptr,
+        .size = (size_t) buffer_size
+    };
+
+    assert(self->local != NULL);
+
+    local = self->local;
+    record = dict_search(local->neighbors, to->paddr);
+    client = (client_t *) dict_data_user(record);
+
+    if (*client == NULL) {
+        client_t newcl;
+
+        newcl = client_new(-1, local->pollfd, to->paddr);
+        if (newcl == NULL) {
+            return -1;
+        }
+        *client = newcl;
+    }
+
+    if (client_write(*client, &msg) == -1) {
+        return -1;
+    }
+
+    return buffer_size;
 }
 
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
@@ -257,7 +285,7 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
     sockaddr_strrep((struct sockaddr *)ret->paddr, ret->repr.ip,
                     INET_ADDRSTRLEN);
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
-            (uint16_t) sockaddr_port(ret->paddr));
+            (uint16_t) sockaddr_getport(ret->paddr));
 
     *len = sockaddr_size(ret->paddr);
     return ret;
