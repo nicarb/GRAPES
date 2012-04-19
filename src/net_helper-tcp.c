@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <sys/epoll.h>
 #include <sys/time.h>
+#include <sys/select.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -50,11 +51,24 @@ typedef struct nodeID {
     } repr;                         // reentrant string representations
 } nodeid_t;
 
+typedef struct {
+    int *user_fds;
+    unsigned n_user_fds;
+    int wakeup;
+    pollcb_t cb;
+    int allfd;
+} user_poll_t;
+
 /* -- Internal functions --------------------------------------------- */
 
 static local_info_t * local_new (struct sockaddr *addr, struct tag *cfg);
 static void local_del (local_info_t *l);
 static int local_run_epoll (local_info_t *l, int toutmilli);
+
+/* -- Internal functions for user file descriptors ------------------- */
+static void * user_poll_callback (void *ctx, int uefd, int epollfd);
+static int user_poll_init (user_poll_t *upoll, int *user_fds, int pollfd);
+static void user_poll_clear (user_poll_t *upoll);
 
 /* -- Constants ------------------------------------------------------ */
 
@@ -172,19 +186,27 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
 {
     unsigned now, time_limit;
     local_info_t *local;
+    user_poll_t user_poll;
 
     assert(self->local != NULL);
 
     local = self->local;
+    if (user_poll_init(&user_poll, user_fds, local->pollfd) == -1) {
+        return -1;
+    }
     time_limit = tout_now_ms() + tout_timeval_to_ms(tout);
     
-    while (inbox_empty(local->inbox) &&
+    while (inbox_empty(local->inbox) && !user_poll.wakeup &&
            (now = tout_now_ms()) < time_limit) {
-        local_run_epoll(local, time_limit - now);
-        inbox_scan_dict(neighbors);
+        if (local_run_epoll(local, time_limit - now) == -1) {
+            user_poll_clear(&user_poll);
+            return -1;
+        }
+        inbox_scan_dict(local->inbox, local->neighbors);
     }
+    user_poll_clear(&user_poll);
 
-    return inbox_empty(local->inbox) ? 0 : 1;
+    return (inbox_empty(local->inbox) && !user_poll.wakeup) ? 0 : 1;
 }
 
 struct nodeID *nodeid_undump (const uint8_t *b, int *len)
@@ -282,3 +304,67 @@ int local_run_epoll (local_info_t *l, int toutmilli)
     return 0;
 }
 
+static
+void * user_poll_callback (void *ctx, int uefd, int epollfd)
+{
+    user_poll_t * upoll = ctx;
+    int i, N;
+    struct epoll_event events[upoll->n_user_fds];
+
+    upoll->wakeup = 1;
+
+    N = epoll_wait(uefd, events, upoll->n_user_fds, 0);
+    for (i = 0; i < N; i ++) {
+        int *ufd = (int *)events[i].data.ptr;
+        *ufd = -2;  // According to original versions of net_helper-udp
+    }
+
+    return ctx;
+}
+
+static
+int user_poll_init (user_poll_t *upoll, int *user_fds, int pollfd)
+{
+    int fd;
+    unsigned i;
+
+    upoll->user_fds = user_fds;
+    upoll->wakeup = 0;
+    upoll->cb = NULL;
+
+    fd = epoll_create1(0);
+    if (fd == -1) {
+        print_err("Net-helper", "epoll_create", errno);
+        return -1;
+    }
+    upoll->allfd = fd;
+    for (i = 0; user_fds[i] != -1; i ++) {
+        struct epoll_event ev;
+
+        ev.events = EPOLLIN;
+        ev.data.ptr = (void *) &user_fds[i];
+        if (epoll_ctl(fd, EPOLL_CTL_ADD, user_fds[i], &ev) == -1) {
+            user_poll_clear(upoll);
+            return -1;
+        }
+    }
+    upoll->n_user_fds = i;
+    upoll->cb = pollcb_new(user_poll_callback, (void *)upoll,
+                           upoll->allfd, pollfd);
+    if (pollcb_enable(upoll->cb, EPOLLIN) == -1) {
+        user_poll_clear(upoll);
+        return -1;
+    }
+
+    return 0;
+}
+
+static
+void user_poll_clear (user_poll_t *upoll)
+{
+    if (upoll->cb != NULL) {
+        pollcb_disable(upoll->cb);
+        pollcb_del(upoll->cb);
+    }
+    close(upoll->allfd);
+}
