@@ -36,6 +36,7 @@ typedef struct {
     } flags;
 } peer_info_t;
 
+<<<<<<< work
 /** Constructor for the dictionary.
  *
  * @param[in] af Either AF_INET or AF_INET6 (the latter is not supported,
@@ -169,6 +170,80 @@ typedef dict_scanact_t (* dict_scancb_t) (void *ctx,
  * @param[in] ctx The user context;
  */
 void dict_scan (dict_t D, dict_scancb_t cback, void *ctx);
+=======
+/* Return 1 to continue, 0 to stop scanning */
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+typedef int (* dict_foreach_t) (void *ctx, const struct sockaddr *,
+                                void * userdata, uint32_t *flags);
+
+/* Destructor must support NULL as input value */
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+dict_t dict_new (struct tag *, dict_delcb_t del, dict_pred_t valid);
+
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+void dict_del (dict_t);
+
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+dict_data_t dict_search (dict_t, const struct sockaddr *);
+
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+void dict_foreach (dict_t, dict_foreach_t cb, void * ctx);
+
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+int * dict_data_fd (dict_data_t);
+
+/** 
+ *
+ * @param[in] 
+ *
+ * @return 
+ *
+ * @see 
+ */
+void ** dict_data_user (dict_data_t);
+>>>>>>> local
 
 #endif // DICTIONARY_H
 
