@@ -178,7 +178,41 @@ int send_to_peer(const struct nodeID *self, struct nodeID *to,
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
-    return 0;
+    local_info_t *local;
+    client_t from;
+    const struct sockaddr *fromaddr;
+    const msg_buf_t *msg;
+    int size;
+
+    assert(self->local != NULL);
+    local = self->local;
+
+    while (inbox_empty(local->inbox)) {
+        if (local_run_epoll(local, -1)) {
+            return -1;
+        }
+        inbox_scan_dict(local->inbox, local->neighbors);
+    }
+
+    from = inbox_next(local->inbox);
+    msg = client_read(from);
+    if (msg == NULL) {
+        print_err("Retrieving message", NULL, EBADFD);
+        return -1;
+    }
+
+    if (msg->size < buffer_size) {
+        print_err("Retrieving message", NULL, ENOBUFS);
+        return -1;
+    }
+
+    fromaddr = client_get_addr(from);
+    size = (int) sockaddr_size(fromaddr);
+    *remote = nodeid_undump((const uint8_t *) fromaddr, &size);
+    assert(*remote != NULL);    // NULL here makes no sense!
+
+    memcpy((void *)buffer_ptr, msg->data, msg->size);
+    return msg->size;
 }
 
 int wait4data(const struct nodeID *self, struct timeval *tout,
@@ -195,7 +229,7 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
         return -1;
     }
     time_limit = tout_now_ms() + tout_timeval_to_ms(tout);
-    
+
     while (inbox_empty(local->inbox) && !user_poll.wakeup &&
            (now = tout_now_ms()) < time_limit) {
         if (local_run_epoll(local, time_limit - now) == -1) {
@@ -214,8 +248,7 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
     nodeid_t *ret;
 
     ret = create_node(NULL, 0);
-    if (sockaddr_undump(ret->paddr, sizeof(struct sockaddr_storage),
-                        (const void *)b) == -1) {
+    if (sockaddr_undump(ret->paddr, *len, (const void *)b) == -1) {
         return NULL;
     }
 
@@ -226,6 +259,7 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
             (uint16_t) sockaddr_port(ret->paddr));
 
+    *len = sockaddr_size(ret->paddr);
     return ret;
 }
 
