@@ -64,5 +64,6 @@ unsigned tout_now_ms ()
 {
     struct timeval out;
     gettimeofday(&out, NULL);
-    return timeval_to_ms(&out);
+    return tout_timeval_to_ms(&out);
 }
+
