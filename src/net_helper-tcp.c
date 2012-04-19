@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/epoll.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -23,6 +24,8 @@
 #include "NetHelper/server.h"
 #include "NetHelper/poll-cb.h"
 #include "NetHelper/client.h"
+#include "NetHelper/inbox.h"
+#include "NetHelper/timeout.h"
 
 /* -- Internal data types -------------------------------------------- */
 
@@ -32,6 +35,8 @@ typedef struct {
     int pollfd;
     server_t server;
     dict_t neighbors;
+    inbox_t inbox;
+
 } local_info_t;
 
 typedef struct nodeID {
@@ -53,7 +58,7 @@ static int local_run_epoll (local_info_t *l, int toutmilli);
 
 /* -- Constants ------------------------------------------------------ */
 
-static const size_t MAX_CHECKED_EVENTS = 10;
+static const size_t MAX_CHECKED_EVENTS = 32;
 
 static const unsigned DEFAULT_BACKLOG = 5;
 static const char CONF_KEY_BACKLOG[] = "TCPBacklog";
@@ -165,16 +170,21 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 int wait4data(const struct nodeID *self, struct timeval *tout,
               int *user_fds)
 {
-    unsigned tout_ms;
+    unsigned now, time_limit;
+    local_info_t *local;
 
     assert(self->local != NULL);
 
-    /* ...something in between... */
+    local = self->local;
+    time_limit = tout_now_ms() + tout_timeval_to_ms(tout);
+    
+    while (inbox_empty(local->inbox) &&
+           (now = tout_now_ms()) < time_limit) {
+        local_run_epoll(local, time_limit - now);
+        inbox_scan_dict(neighbors);
+    }
 
-    tout_ms = tout->tv_sec * 1000 + tout->tv_usec / 1000;
-    local_run_epoll(self->local, tout_ms);
-
-    return 0;
+    return inbox_empty(local->inbox) ? 0 : 1;
 }
 
 struct nodeID *nodeid_undump (const uint8_t *b, int *len)
@@ -213,6 +223,7 @@ local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
     L->pollfd = -1;
     L->server = NULL;
     L->neighbors = NULL;
+    L->inbox = NULL;
 
     if ((L->pollfd = epoll_create1(0)) == -1) {
         print_err("Net-helper (tcp)", "epoll_create", errno);
@@ -230,7 +241,7 @@ local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
         local_del(L);
         return NULL;
     }
-
+    L->inbox = inbox_new();
     if ((L->server = server_new(addr, tcp_backlog, L->pollfd,
                                 L->neighbors)) == NULL) {
         local_del(L);
@@ -248,6 +259,7 @@ void local_del (local_info_t *L)
     close(L->pollfd);
     server_del(L->server);
     dict_del(L->neighbors);
+    inbox_del(L->inbox);
     free(L);
 }
 
