@@ -15,5 +15,9 @@ int tout_expired (tout_t t);
 
 void tout_del (tout_t t);
 
+unsigned tout_timeval_to_ms (const struct timeval *tval);
+
+unsigned tout_now_ms ();
+
 #endif // TIMEOUT_H
 

@@ -55,3 +55,14 @@ void tout_del (tout_t t)
     free(t);
 }
 
+unsigned tout_timeval_to_ms (const struct timeval *tval)
+{
+    return tval->tv_sec * 1000 + tval->tv_usec / 1000;
+}
+
+unsigned tout_now_ms ()
+{
+    struct timeval out;
+    gettimeofday(&out, NULL);
+    return timeval_to_ms(&out);
+}

@@ -30,6 +30,7 @@ int inbox_empty (inbox_t ib)
 
 void inbox_del (inbox_t ib)
 {
+    if (ib == NULL) return;
     /* Note: client_t items are already stored in the dictionary. They are
      *       just kept in a queue here. And yes, this is safe */
     dlist_free(ib->queue, NULL);
