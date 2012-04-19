@@ -41,8 +41,8 @@ typedef struct {
 } local_info_t;
 
 typedef struct nodeID {
-    struct sockaddr_storage addr;
-    struct sockaddr * paddr;
+    struct sockaddr_storage addr;   // local addr (pointed by paddr)
+    struct sockaddr * paddr;        // convenience pointer to addr
     local_info_t *local;            // non-NULL only for local node
 
     struct {
@@ -211,15 +211,29 @@ int wait4data(const struct nodeID *self, struct timeval *tout,
 
 struct nodeID *nodeid_undump (const uint8_t *b, int *len)
 {
-    /* TODO: complete. See sockaddr_undump */
-    return NULL;
+    nodeid_t *ret;
+
+    ret = create_node(NULL, 0);
+    if (sockaddr_undump(ret->paddr, sizeof(struct sockaddr_storage),
+                        (const void *)b) == -1) {
+        return NULL;
+    }
+
+    /* String representation (this part will be updated in the reentrant
+     * branch of GRAPES) */
+    sockaddr_strrep((struct sockaddr *)ret->paddr, ret->repr.ip,
+                    INET_ADDRSTRLEN);
+    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
+            (uint16_t) sockaddr_port(ret->paddr));
+
+    return ret;
 }
 
 int nodeid_dump (uint8_t *b, const struct nodeID *s,
                  size_t max_write_size)
 {
-    /* TODO: complete. See sockaddr_dump */
-    return 0;
+    assert(s->local == NULL);
+    return sockaddr_dump((void *)b, max_write_size, s->paddr);
 }
 
 const char *node_ip(const struct nodeID *s)

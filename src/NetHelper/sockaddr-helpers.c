@@ -21,6 +21,25 @@ ssize_t get_size (const struct sockaddr *s)
     }
 }
 
+uint16_t sockaddr_getport (const struct sockaddr *s)
+{
+    uint16_t P;
+
+    switch (s->sa_family) {
+        case AF_INET:
+            P = ((const struct sockaddr_in *)s)->sin_port;
+            break;
+        case AF_INET6:
+            P = ((const struct sockaddr_in6 *)s)->sin6_port;
+            break;
+        default:
+            print_err("Address analysis", NULL, EAFNOSUPPORT);
+            return -1;
+    }
+
+    return htons(P);
+}
+
 size_t sockaddr_size (const struct sockaddr *s)
 {
     size_t ret = get_size(s);
