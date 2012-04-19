@@ -60,11 +60,9 @@ int scan_callback (void *ctx, const struct sockaddr *addr, void *userdata,
 
     ib = (inbox_t) ctx;
     cl = (client_t) userdata;
-    if (!client_flag_enqueued(cl, 1)) {
-        /* Not in queue already */
-        ib->queue = dlist_append(ib->queue, (void *)cl);
-    }
-
+    if (!client_has_message(cl)) return 1; 
+    if (client_flag_enqueued(cl, 1)) return 1;
+    ib->queue = dlist_append(ib->queue, (void *)cl);
     return 1;   /* Don't stop */
 }
 
