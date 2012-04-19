@@ -6,27 +6,30 @@
 
 /** 
  *
- * @param[in] 
+ * @param[in] sockaddr the target needed
  *
- * @return 
+ * @return the size of the target sockaddr
  *
  * @see 
  */
 size_t sockaddr_size (const struct sockaddr *);
 
-/** 
+/** Function for creating a an hash-key for the
+ *  given sockaddr.
  *
- * @param[in] 
+ * @param[in] sockaddr
  *
- * @return 
+ * @return hashing key obtained by the sockaddr.
+ *         This key is needed in the Dictionary.
  *
  * @see 
  */
 uintptr_t sockaddr_hash (const struct sockaddr *);
 
-/** 
+/** Comparision function
  *
- * @param[in] 
+ * @param[in] source1
+ * @param[in] source2
  *
  * @return 
  *
@@ -35,9 +38,10 @@ uintptr_t sockaddr_hash (const struct sockaddr *);
 int sockaddr_cmp (const struct sockaddr *sa0,
                   const struct sockaddr *sa1);
 
-/** 
+/** Checks if two sockaddresses are the same
  *
- * @param[in] 
+ * @param[in] source1
+ * @param[in] source2
  *
  * @return 
  *
@@ -48,7 +52,9 @@ int sockaddr_equal (const struct sockaddr *sa0,
 
 /** 
  *
- * @param[in] 
+ * @param[in] dst
+ * @param[in] defsize
+ * @param[in] src
  *
  * @return 
  *
@@ -58,7 +64,9 @@ int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src);
 
 /** 
  *
- * @param[in] 
+ * @param[in] dst
+ * @param[in] dstsize
+ * @param[in] src
  *
  * @return 
  *
@@ -67,22 +75,23 @@ int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src);
 int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
                      const void *src);
 
-/** 
+/** Copies the data of the src sockaddr to the dst one.
  *
- * @param[in] 
+ * @param[in] dst
+ * @param[in] src
  *
- * @return 
+ * @return a copy of the src sockaddr data
  *
  * @see 
  */
 struct sockaddr * sockaddr_copy (struct sockaddr *dst, 
                                  const struct sockaddr * src);
 
-/** 
+/** Duplicate a sockaddr structure
  *
- * @param[in] 
+ * @param[in] src
  *
- * @return 
+ * @return the duplicated structure
  *
  * @see 
  */
@@ -90,7 +99,9 @@ struct sockaddr * sockaddr_dup (const struct sockaddr *src);
 
 /** 
  *
- * @param[in] 
+ * @param[in] sockaddr
+ * @param[in] buffer
+ * @param[in] buflen
  *
  * @return 
  *
@@ -100,7 +111,8 @@ int sockaddr_strrep (const struct sockaddr *, char *buffer, size_t buflen);
 
 /** 
  *
- * @param[in] 
+ * @param[in] ouraddr
+ * @param[in] fd
  *
  * @return 
  *
@@ -110,7 +122,8 @@ int sockaddr_send_hello (const struct sockaddr *ouraddr, int fd);
 
 /** 
  *
- * @param[in] 
+ * @param[in] theiraddr
+ * @param[in] fd
  *
  * @return 
  *
@@ -118,10 +131,11 @@ int sockaddr_send_hello (const struct sockaddr *ouraddr, int fd);
  */
 int sockaddr_recv_hello (struct sockaddr *theiraddr, int fd);
 
-/* Specific calls for sockaddr_in */
-/** 
+/** Specific calls for sockaddr_in 
  *
- * @param[in] 
+ * @param[in] in
+ * @param[in] ipaddr
+ * @param[in] port
  *
  * @return 
  *

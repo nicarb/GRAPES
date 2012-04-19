@@ -7,6 +7,9 @@ typedef struct server * server_t;
 
 /** 
  *
+ * @param[in] addr
+ * @param[in] backlig
+ * @param[in] epollfmd
  * @param[in] 
  *
  * @return 
@@ -18,9 +21,8 @@ server_t server_new (const struct sockaddr *addr, int backlog,
 
 /** 
  *
- * @param[in] 
+ * @param[in] server_t
  *
- * @return 
  *
  * @see 
  */

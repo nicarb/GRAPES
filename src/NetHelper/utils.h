@@ -43,17 +43,16 @@ void * mem_dup (const void * src, size_t size);
  * @param[in] what
  * @param[in] e
  *
- * @return 
- *
  * @see 
  */
 void print_err (const char *where, const char *what, int e);
 
-/* send until completed, return 0 or -1 on success and failure
- * respectively */
-/** 
+/** Continue sending until it's completed, return 0 or -1 on success or failure
+ * respectively
  *
- * @param[in] 
+ * @param[in] fd
+ * @param[in] buffer
+ * @param[in] buflen
  *
  * @return 
  *
@@ -61,11 +60,11 @@ void print_err (const char *where, const char *what, int e);
  */
 int send_forced (int fd, const uint8_t * buffer, size_t buflen);
 
-/* receive until completed, return 0 or -1 on success and failure
- * respectively */
-/** 
- *
- * @param[in] 
+/** Cycle on receive until it's completed, return 0 or -1  on success or failure,
+ * respectively.
+ * @param[in] fd
+ * @param[in] buffer
+ * @param[in] bufflen
  *
  * @return 
  *
@@ -75,19 +74,19 @@ int recv_forced (int fd, uint8_t * buffer, size_t buflen);
 
 /** 
  *
- * @param[in] 
+ * @param[in] hdr
  *
- * @return 
+ * @return the size of the header
  *
  * @see 
  */
 ssize_t header_get_size (header_t *hdr);
 
-/** 
+/** Sets the size of the headder
  *
- * @param[in] 
+ * @param[in] hdr headder structure
+ * @param[in] s the size of the headder
  *
- * @return 
  *
  * @see 
  */

@@ -1,23 +1,22 @@
 #ifndef TCP_CALLS_H
 #define TCP_CALLS_H
 
-/* Both return -1 on error and fd on success */
-
 /** 
  *
- * @param[in] 
+ * @param[in] srv
+ * @param[in] backlog
  *
- * @return 
+ * @return -1 on error or fd on success 
  *
- * @see 
+ * @see
  */
 int tcp_serve (const struct sockaddr *srv, int backlog);
 
-/** 
+/** Function for connecting to a target
  *
- * @param[in] 
+ * @param[in] to the target
  *
- * @return 
+ * @return -1 on error or fd on success 
  *
  * @see 
  */
