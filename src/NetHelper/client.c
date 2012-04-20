@@ -24,8 +24,9 @@ struct client {
 
 static int tcp_connect (const struct sockaddr *to);
 
-client_t client_new (int clientfd, int epollfd,
-                     const struct sockaddr *addr)
+static
+client_t create (int clientfd, int epollfd,
+                 const struct sockaddr *addr)
 {
     client_t ret;
     struct timeval max_tout;
@@ -41,16 +42,30 @@ client_t client_new (int clientfd, int epollfd,
     max_tout.tv_usec = 0;
     ret->tout = tout_new(&max_tout);
 
-    if (clientfd == -1) {
-        clientfd = tcp_connect(addr);
-        if (clientfd == -1) {
-            client_del(ret);
-        }
-    }
-
     client_setfd(ret, clientfd);
 
     return ret;
+}
+
+client_t client_new (int clientfd, int epollfd,
+                     const struct sockaddr *addr)
+{
+    return create(clientfd, epollfd, addr);
+}
+
+client_t client_new_connect (int epollfd, const struct sockaddr *to,
+                             const struct sockaddr *local_srv)
+{
+    int clientfd;
+   
+    clientfd = tcp_connect(to);
+    if (clientfd == -1) {
+        return NULL;
+    }
+    if (sockaddr_send_hello(local_srv, clientfd) == -1) {
+        return NULL;
+    }
+    return create(clientfd, epollfd, to);
 }
 
 const struct sockaddr * client_get_addr (client_t cl)

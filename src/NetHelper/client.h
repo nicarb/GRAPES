@@ -5,9 +5,13 @@
 
 typedef struct client * client_t;
 
-/* clientfd == -1 -> connect */
+/* When receiving */
 client_t client_new (int clientfd, int epollfd,
                      const struct sockaddr *addr);
+
+/* When connecting */
+client_t client_new_connect (int epollfd, const struct sockaddr *to,
+                             const struct sockaddr *local_srv);
 
 /* Change file descriptor if needed */
 void client_setfd (client_t cl, int newfd);

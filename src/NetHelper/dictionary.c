@@ -82,7 +82,7 @@ dict_data_t dict_search (dict_t d, const struct sockaddr *addr)
 
     dhash_search_default(d->hash, (const void *)addr, (void **) &out,
                          dict_data_new, (void *)d);
-    if (!d->cbacks.valid(out->user.data)) {
+    if (out->user.data != NULL && !d->cbacks.valid(out->user.data)) {
         dict_data_reset(out);
     }
 

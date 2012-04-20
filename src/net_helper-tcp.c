@@ -189,7 +189,7 @@ int send_to_peer(const struct nodeID *self, struct nodeID *to,
     if (*client == NULL) {
         client_t newcl;
 
-        newcl = client_new(-1, local->pollfd, to->paddr);
+        newcl = client_new_connect(local->pollfd, to->paddr, self->paddr);
         if (newcl == NULL) {
             return -1;
         }
@@ -404,9 +404,16 @@ int user_poll_init (user_poll_t *upoll, int *user_fds, int pollfd)
     int fd;
     unsigned i;
 
-    upoll->user_fds = user_fds;
     upoll->wakeup = 0;
     upoll->cb = NULL;
+    upoll->allfd = -1;
+
+    if (user_fds == NULL) {
+        /* We just don't need this */
+        return 0;
+    }
+
+    upoll->user_fds = user_fds;
 
     fd = epoll_create1(0);
     if (fd == -1) {
@@ -420,6 +427,7 @@ int user_poll_init (user_poll_t *upoll, int *user_fds, int pollfd)
         ev.events = EPOLLIN;
         ev.data.ptr = (void *) &user_fds[i];
         if (epoll_ctl(fd, EPOLL_CTL_ADD, user_fds[i], &ev) == -1) {
+            print_err("user poll", "epoll_ctl", errno);
             user_poll_clear(upoll);
             return -1;
         }
