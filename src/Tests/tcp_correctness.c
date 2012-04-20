@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const uint16_t START_PORT = 9500;
+static const uint16_t START_PORT = 9000;
 static const size_t BUFSIZE = 30;
 
 static void node0 ()
@@ -66,10 +66,11 @@ static void node1 ()
     printf("node1 - Going receive\n");
     N = recv_from_peer(self, &remote, (void *)buffer, BUFSIZE);
     assert(buffer[N-1] == 0);
-    printf("node1 - Received: \"%s\", now sending twice\n", buffer);
+    printf("node1 - Received: \"%s\", now sending someting\n", buffer);
 
     send_to_peer(self, remote, (void *)buffer, N);
-    send_to_peer(self, other, (void *)buffer, N);
+    send_to_peer(self, other, (const void *)"Hey, what up?",
+                 sizeof("Hey what up?") + 1);
 
     nodeid_free(self);
     nodeid_free(other);
