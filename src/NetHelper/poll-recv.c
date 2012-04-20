@@ -89,6 +89,7 @@ poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
         pr->state = ERROR;
     }
 
+    pr->state = RECEIVING_HDR;
     *out = (const msg_buf_t *) &pr->buffer;
     return POLL_RECV_SUCCESS;
 }
@@ -114,6 +115,7 @@ void * poll_callback (void *ctx, int fd, int _epollfd)
     while (have_data) {
         switch (pr->state) {
             case COMPLETE:
+            case ERROR:
                 return ctx;
             case RECEIVING_HDR:
                 n = read(fd, (uint8_t *)(&pr->hdr) + pr->received,
@@ -147,6 +149,7 @@ void * poll_callback (void *ctx, int fd, int _epollfd)
                 pr->received += n;
                 if (pr->received == pr->buffer.size) {
                     pr->state = COMPLETE;
+                    pr->received = 0;
                     if (pollcb_disable(pr->pcb) == -1) {
                         pr->state = ERROR;
                     }

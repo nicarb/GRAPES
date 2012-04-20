@@ -196,9 +196,11 @@ int send_to_peer(const struct nodeID *self, struct nodeID *to,
         *client = newcl;
     }
 
+    local_run_epoll(local, 0);
     if (client_write(*client, &msg) == -1) {
         return -1;
     }
+    local_run_epoll(local, 0);
 
     return buffer_size;
 }
@@ -229,7 +231,7 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
         return -1;
     }
 
-    if (msg->size < buffer_size) {
+    if (msg->size > buffer_size) {
         print_err("Retrieving message", NULL, ENOBUFS);
         return -1;
     }
