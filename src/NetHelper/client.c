@@ -118,6 +118,7 @@ const msg_buf_t * client_read (client_t cl)
         case POLL_RECV_FAIL:
             cl->broken = 1;
         case POLL_RECV_BUSY:
+        case POLL_RECV_STOP:
             return NULL;
         case POLL_RECV_SUCCESS:
         default:

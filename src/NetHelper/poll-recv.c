@@ -14,6 +14,7 @@ typedef enum {
     RECEIVING_HDR,
     RECEIVING_MSG,
     COMPLETE,
+    STOP,
     ERROR
 } state_t;
 
@@ -66,6 +67,7 @@ int poll_recv_is_alive (poll_recv_t pr)
         case COMPLETE:
             return 1;
         case ERROR:
+        case STOP:
             return 0;
         default:
             return pollcb_is_alive(pr->pcb);
@@ -81,6 +83,8 @@ poll_recv_res_t poll_recv_retrieve (poll_recv_t pr,
             break;
         case ERROR:
             return POLL_RECV_FAIL;
+        case STOP:
+            return POLL_RECV_STOP;
         default:
             return POLL_RECV_BUSY;
     }
@@ -155,6 +159,10 @@ void * poll_callback (void *ctx, int fd, int _epollfd)
                     }
                     return ctx;
                 }
+        }
+        if (n == 0) {
+            pr->state = STOP;
+            return ctx;
         }
         have_data = can_recv_more(fd);
         if (have_data == -1) {
