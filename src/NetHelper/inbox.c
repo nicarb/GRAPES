@@ -12,8 +12,7 @@ struct inbox {
     dlist_t * queue;
 };
 
-static int scan_callback (void *ctx, const sockaddr_t *addr,
-                          void *userdata, uint32_t *flags);
+static int scan_callback (void *ctx, const sockaddr_t *addr, client_t cl);
 
 inbox_t inbox_new ()
 {
@@ -36,6 +35,7 @@ void inbox_del (inbox_t ib)
     /* Note: client_t items are already stored in the dictionary. They are
      *       just kept in a queue here. And yes, this is safe */
     dlist_free(ib->queue, NULL);
+    free(ib);
 }
 
 void inbox_scan_dict (inbox_t ib, dict_t dict)
@@ -54,14 +54,9 @@ client_t inbox_next (inbox_t ib)
 }
 
 static
-int scan_callback (void *ctx, const sockaddr_t *addr, void *userdata,
-                   uint32_t *flags)
+int scan_callback (void *ctx, const sockaddr_t *addr, client_t cl)
 {
-    inbox_t ib;
-    client_t cl;
-
-    ib = (inbox_t) ctx;
-    cl = (client_t) userdata;
+    inbox_t ib = (inbox_t) ctx;
 
     assert(sockaddr_equal(addr, client_get_addr(cl)));
 

@@ -83,30 +83,14 @@ static
 int update_neighbors (dict_t neighbors, int clnfd, int epollfd)
 {
     sockaddr_t remote;
-    dict_data_t record;
-    client_t *client;
+    client_t cl;
 
     if ((sockaddr_recv_hello(&remote, clnfd)) == -1) {
         return -1;
     }
 
-    record = dict_search(neighbors, &remote);
-    client = (client_t *) dict_data_user(record);
-
-    if (*client == NULL) {
-        if ((*client = client_new(clnfd, epollfd, &remote)) == NULL) {
-            return -1;
-        }
-    } else {
-        /* I already know this guy, so he knows me. Why is he calling me
-         * back again? Replace the client file descriptor just to avoid
-         * surprises. This is a corner case and totally unlikely, but if
-         * we stumble into it we'll have to wait a long period before the
-         * timeout kills both connections. Why taking the risk? */
-        client_setfd(*client, clnfd);
-    }
-
-    return 0;
+    cl = dict_search(neighbors, &remote);
+    return client_set_fd(cl, clnfd, epollfd);
 }
 
 static

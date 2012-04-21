@@ -41,8 +41,7 @@ typedef struct {
 } local_info_t;
 
 typedef struct nodeID {
-    struct sockaddr_storage addr;   // local addr (pointed by paddr)
-    struct sockaddr * paddr;        // convenience pointer to addr
+    sockaddr_t addr;                // local addr (pointed by paddr)
     local_info_t *local;            // non-NULL only for local node
 
     struct {
@@ -61,7 +60,7 @@ typedef struct {
 
 /* -- Internal functions --------------------------------------------- */
 
-static local_info_t * local_new (struct sockaddr *addr, struct tag *cfg);
+static local_info_t * local_new (sockaddr_t *addr, struct tag *cfg);
 static void local_del (local_info_t *l);
 static int local_run_epoll (local_info_t *l, int toutmilli);
 
@@ -106,13 +105,13 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 */
 int nodeid_cmp (const nodeid_t *s1, const nodeid_t *s2)
 {
-    return sockaddr_cmp(s1->paddr, s2->paddr);
+    return sockaddr_cmp(&s1->addr, &s2->addr);
 }
 
 /* @return 1 if the two nodeID are identical or 0 if they are not. */
 int nodeid_equal (const nodeid_t *s1, const nodeid_t *s2)
 {
-    return sockaddr_equal(s1->paddr, s2->paddr);
+    return sockaddr_equal(&s1->addr, &s2->addr);
 }
 
 struct nodeID *create_node (const char *IPaddr, int port)
@@ -120,7 +119,6 @@ struct nodeID *create_node (const char *IPaddr, int port)
     nodeid_t *ret;
 
     ret = mem_new(sizeof(nodeid_t));
-    ret->paddr = (struct sockaddr *) &ret->addr;
     ret->local = NULL;
 
     /* Initialization of address:
@@ -128,7 +126,7 @@ struct nodeID *create_node (const char *IPaddr, int port)
      *      Note that this works only for ipv4. The internal functions in
      *      sockaddr-helpers, however, should be ipv6-ready.
      */
-    if (sockaddr_in_init((struct sockaddr_in *)ret->paddr,
+    if (sockaddr_in_init(&ret->addr.sin,
                          IPaddr, port) == -1) {
         free(ret);
         return NULL;
@@ -136,8 +134,7 @@ struct nodeID *create_node (const char *IPaddr, int port)
 
     /* String representation (this part will be updated in the reentrant
      * branch of GRAPES) */
-    sockaddr_strrep((struct sockaddr *)ret->paddr, ret->repr.ip,
-                    INET_ADDRSTRLEN);
+    sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN);
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
 
     return ret;
@@ -145,7 +142,7 @@ struct nodeID *create_node (const char *IPaddr, int port)
 
 void nodeid_free (struct nodeID *s)
 {
-    if (s->local) local_del(s->local);
+    local_del(s->local);
     free(s);
 }
 
@@ -161,7 +158,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
     }
 
     cfg = config_parse(config);
-    if ((self->local = local_new(self->paddr, cfg)) == NULL) {
+    if ((self->local = local_new(&self->addr, cfg)) == NULL) {
         free(cfg);
         nodeid_free(self);
         return NULL;
@@ -177,8 +174,7 @@ int send_to_peer(const struct nodeID *self, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
     local_info_t *local;
-    client_t *client;
-    dict_data_t record;
+    client_t client;
     const msg_buf_t msg = {
         .data = (const void *)buffer_ptr,
         .size = (size_t) buffer_size
@@ -186,25 +182,18 @@ int send_to_peer(const struct nodeID *self, struct nodeID *to,
 
     assert(self->local != NULL);
 
-    assert(self->paddr == (struct sockaddr *)&self->addr);
-    assert(to->paddr == (struct sockaddr *)&to->addr);
-
     local = self->local;
-    record = dict_search(local->neighbors, to->paddr);
-    client = (client_t *) dict_data_user(record);
+    client = dict_search(local->neighbors, &to->addr);
 
-    if (*client == NULL) {
-        client_t newcl;
-
-        newcl = client_new_connect(local->pollfd, to->paddr, self->paddr);
-        if (newcl == NULL) {
-            return -1;
-        }
-        *client = newcl;
+    if (client_connect(client, &to->addr, local->pollfd) == -1) {
+        return -1;
+    }
+    if (client_send_hello(client, &self->addr)) {
+        return -1;
     }
 
     local_run_epoll(local, 0);
-    if (client_write(*client, &msg) == -1) {
+    if (client_write(client, &msg) == -1) {
         return -1;
     }
     local_run_epoll(local, 0);
@@ -217,7 +206,7 @@ int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
 {
     local_info_t *local;
     client_t from;
-    const struct sockaddr *fromaddr;
+    const sockaddr_t *fromaddr;
     const msg_buf_t *msg;
     int size;
 
@@ -285,26 +274,25 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
     nodeid_t *ret;
 
     ret = create_node(NULL, 0);
-    if (sockaddr_undump(ret->paddr, sizeof(struct sockaddr_storage),
+    if (sockaddr_undump(&ret->addr, sizeof(struct sockaddr_storage),
                         (const void *)b) == -1) {
         return NULL;
     }
 
     /* String representation (this part will be updated in the reentrant
      * branch of GRAPES) */
-    sockaddr_strrep((struct sockaddr *)ret->paddr, ret->repr.ip,
-                    INET_ADDRSTRLEN);
+    sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN);
     sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
-            (uint16_t) sockaddr_getport(ret->paddr));
+            (uint16_t) sockaddr_getport(&ret->addr));
 
-    *len = sockaddr_size(ret->paddr);
+    *len = sockaddr_size(&ret->addr);
     return ret;
 }
 
 int nodeid_dump (uint8_t *b, const struct nodeID *s,
                  size_t max_write_size)
 {
-    return sockaddr_dump((void *)b, max_write_size, s->paddr);
+    return sockaddr_dump((void *)b, max_write_size, &s->addr);
 }
 
 const char *node_ip(const struct nodeID *s)
@@ -320,7 +308,7 @@ const char *node_addr (const struct nodeID *s)
 /* -- Internal functions --------------------------------------------- */
 
 static
-local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
+local_info_t * local_new (sockaddr_t *addr, struct tag *cfg)
 {
     local_info_t * L;
     int tcp_backlog;
@@ -343,8 +331,7 @@ local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
                                  DEFAULT_BACKLOG);
     }
 
-    if ((L->neighbors = dict_new(cfg, (dict_delcb_t) client_del,
-                                 (dict_pred_t) client_valid)) == NULL) {
+    if ((L->neighbors = dict_new(cfg)) == NULL) {
         local_del(L);
         return NULL;
     }
@@ -361,6 +348,7 @@ local_info_t * local_new (struct sockaddr *addr, struct tag *cfg)
 static
 void local_del (local_info_t *L)
 {
+    if (L == NULL) return;
     if (-- L->refcount > 0) return;
 
     close(L->pollfd);

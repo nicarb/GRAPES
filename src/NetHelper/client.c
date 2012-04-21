@@ -1,6 +1,8 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
 
 #include "client.h"
 #include "utils.h"
@@ -14,7 +16,10 @@ static const unsigned CLIENT_TIMEOUT_MINUTES = 10;
 struct client {
     poll_send_t send;
     poll_recv_t recv;
+
     int epollfd;
+    int fd;
+
     tout_t tout;
     sockaddr_t addr;
 
@@ -24,48 +29,51 @@ struct client {
 
 static int tcp_connect (const sockaddr_t *to);
 
-static
-client_t create (int clientfd, int epollfd,
-                 const sockaddr_t *addr)
+client_t client_new (const sockaddr_t *addr)
 {
     client_t ret;
     struct timeval max_tout;
 
     ret = mem_new(sizeof(struct client));
+
     ret->send = NULL;
     ret->recv = NULL;
-    ret->epollfd = epollfd;
-    sockaddr_copy(&ret->addr, addr);
-    ret->broken = 0;
 
+    ret->fd = -1;
+    ret->epollfd = -1;
+
+    sockaddr_copy(&ret->addr, addr);
     max_tout.tv_sec = CLIENT_TIMEOUT_MINUTES * 60;
     max_tout.tv_usec = 0;
     ret->tout = tout_new(&max_tout);
 
-    client_setfd(ret, clientfd);
+    ret->broken = 0;
+    ret->enqueued = 0;
 
     return ret;
 }
 
-client_t client_new (int clientfd, int epollfd,
-                     const sockaddr_t *addr)
+void client_reset (client_t cl)
 {
-    return create(clientfd, epollfd, addr);
+    if (cl->fd != -1) close(cl->fd);
+    cl->fd = -1;
+    cl->epollfd = -1;
+
+    poll_recv_del(cl->recv);
+    cl->recv = NULL;
+    poll_send_del(cl->send);
+    cl->send = NULL;
+
+    cl->broken = 0;
+    cl->enqueued = 0;
 }
 
-client_t client_new_connect (int epollfd, const sockaddr_t *to,
-                             const sockaddr_t *local_srv)
+int client_connect (client_t cl, const sockaddr_t *to, int epollfd)
 {
-    int clientfd;
+    int fd = tcp_connect(to);
 
-    clientfd = tcp_connect(to);
-    if (clientfd == -1) {
-        return NULL;
-    }
-    if (sockaddr_send_hello(local_srv, clientfd) == -1) {
-        return NULL;
-    }
-    return create(clientfd, epollfd, to);
+    if (fd == -1) return -1;
+    return client_set_fd(cl, fd, epollfd);
 }
 
 const sockaddr_t * client_get_addr (client_t cl)
@@ -73,14 +81,31 @@ const sockaddr_t * client_get_addr (client_t cl)
     return &cl->addr;
 }
 
-void client_setfd (client_t cl, int newfd)
+int client_set_fd (client_t cl, int fd, int epollfd)
 {
     poll_send_del(cl->send);
     poll_recv_del(cl->recv);
 
-    cl->send = poll_send_new(newfd, cl->epollfd);
-    cl->recv = poll_recv_new(newfd, cl->epollfd);
-    close(newfd);   // it has been dup()licated, we can close it.
+    if (cl->fd != -1) close(cl->fd);
+    cl->fd = fd;
+
+    cl->send = poll_send_new(fd, cl->epollfd);
+    cl->recv = poll_recv_new(fd, cl->epollfd);
+
+    if (cl->send == NULL || cl->recv == NULL) {
+        cl->broken = 1;
+        return -1;
+    }
+
+    tout_reset(cl->tout);
+
+    return 0;
+}
+
+int client_send_hello (client_t cl, const sockaddr_t *local_srv)
+{
+    assert(cl->fd != -1);
+    return sockaddr_send_hello(local_srv, cl->fd);
 }
 
 int client_valid (client_t cl)
@@ -107,7 +132,8 @@ int client_valid (client_t cl)
         return 1;
     }
 
-    return poll_recv_is_alive(cl->recv) &&
+    return fcntl(cl->fd, F_GETFD) != -1 &&  // valid fd
+           poll_recv_is_alive(cl->recv) &&
            poll_send_is_alive(cl->send) &&
            !(tout_expired(cl->tout) || cl->broken);
 }
@@ -161,9 +187,11 @@ void client_del (client_t cl)
 {
     if (cl == NULL) return;
 
+    if (cl->fd != -1) close(cl->fd);
     poll_send_del(cl->send);
     poll_recv_del(cl->recv);
     tout_del(cl->tout);
+    free(cl);
 }
 
 static

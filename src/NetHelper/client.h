@@ -6,16 +6,16 @@
 
 typedef struct client * client_t;
 
-/* When receiving */
-client_t client_new (int clientfd, int epollfd,
-                     const sockaddr_t *addr);
+client_t client_new (const sockaddr_t *addr);
 
-/* When connecting */
-client_t client_new_connect (int epollfd, const sockaddr_t *to,
-                             const sockaddr_t *local_srv);
+int client_connect (client_t cl, const sockaddr_t *to, int epollfd);
 
 /* Change file descriptor if needed */
-void client_setfd (client_t cl, int newfd);
+int client_set_fd (client_t cl, int clfd, int epollfd);
+
+int client_send_hello (client_t cl, const sockaddr_t *local_srv);
+
+void client_reset (client_t cl);
 
 /* For dictionary validity */
 int client_valid (client_t cl);
