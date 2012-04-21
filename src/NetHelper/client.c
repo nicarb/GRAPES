@@ -85,6 +85,8 @@ void client_setfd (client_t cl, int newfd)
 
 int client_valid (client_t cl)
 {
+    if (cl == NULL) return 0;
+
     /* NOTE:
         The client is alive as long as both the poll-send and the
         poll-recv are alive. However a poll-recv instance remains alive

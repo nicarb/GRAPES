@@ -85,7 +85,9 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 
     if (s->local == NULL) {
         ret = malloc(sizeof(nodeid_t));
-        if (ret == NULL) return NULL;
+        if (ret == NULL) {
+            return NULL;
+        }
         memcpy(ret, s, sizeof(nodeid_t));
     } else {
         /* This reference counter trick will avoid copying around of the
@@ -278,7 +280,8 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
     nodeid_t *ret;
 
     ret = create_node(NULL, 0);
-    if (sockaddr_undump(ret->paddr, *len, (const void *)b) == -1) {
+    if (sockaddr_undump(ret->paddr, sizeof(struct sockaddr_storage),
+                        (const void *)b) == -1) {
         return NULL;
     }
 
@@ -296,7 +299,6 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
 int nodeid_dump (uint8_t *b, const struct nodeID *s,
                  size_t max_write_size)
 {
-    assert(s->local == NULL);
     return sockaddr_dump((void *)b, max_write_size, s->paddr);
 }
 
