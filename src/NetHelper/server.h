@@ -2,10 +2,11 @@
 #define SERVER_H
 
 #include "dictionary.h"
+#include "sockaddr-helpers.h"
 
 typedef struct server * server_t;
 
-server_t server_new (const struct sockaddr *addr, int backlog,
+server_t server_new (const sockaddr_t *addr, int backlog,
                      int epollfd, dict_t neighbors);
 
 void server_del (server_t);

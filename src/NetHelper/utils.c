@@ -46,10 +46,15 @@ void print_err (const char *where, const char *what, int e)
     }
 }
 
+#include "sockaddr-helpers.h"
 int send_forced (int fd, const uint8_t * buffer, size_t buflen)
 {
+    struct sockaddr *addr = (struct sockaddr *)buffer;
+
     while (buflen > 0) {
-        ssize_t n = write(fd, (const void *)buffer, buflen);
+        ssize_t n;
+
+        n = write(fd, (const void *)buffer, buflen);
         if (n == -1) {
             print_err("Send forced", "send", errno);
             return -1;

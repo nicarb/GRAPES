@@ -76,7 +76,7 @@ void dict_del (dict_t d)
     dhash_free(d->hash);
 }
 
-dict_data_t dict_search (dict_t d, const struct sockaddr *addr)
+dict_data_t dict_search (dict_t d, const sockaddr_t *addr)
 {
     dict_data_t out;
 

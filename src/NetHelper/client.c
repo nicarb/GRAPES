@@ -16,17 +16,17 @@ struct client {
     poll_recv_t recv;
     int epollfd;
     tout_t tout;
-    struct sockaddr_storage addr;
+    sockaddr_t addr;
 
     unsigned broken : 1;
     unsigned enqueued : 1;
 };
 
-static int tcp_connect (const struct sockaddr *to);
+static int tcp_connect (const sockaddr_t *to);
 
 static
 client_t create (int clientfd, int epollfd,
-                 const struct sockaddr *addr)
+                 const sockaddr_t *addr)
 {
     client_t ret;
     struct timeval max_tout;
@@ -35,7 +35,7 @@ client_t create (int clientfd, int epollfd,
     ret->send = NULL;
     ret->recv = NULL;
     ret->epollfd = epollfd;
-    sockaddr_copy((struct sockaddr *)&ret->addr, addr);
+    sockaddr_copy(&ret->addr, addr);
     ret->broken = 0;
 
     max_tout.tv_sec = CLIENT_TIMEOUT_MINUTES * 60;
@@ -48,16 +48,16 @@ client_t create (int clientfd, int epollfd,
 }
 
 client_t client_new (int clientfd, int epollfd,
-                     const struct sockaddr *addr)
+                     const sockaddr_t *addr)
 {
     return create(clientfd, epollfd, addr);
 }
 
-client_t client_new_connect (int epollfd, const struct sockaddr *to,
-                             const struct sockaddr *local_srv)
+client_t client_new_connect (int epollfd, const sockaddr_t *to,
+                             const sockaddr_t *local_srv)
 {
     int clientfd;
-   
+
     clientfd = tcp_connect(to);
     if (clientfd == -1) {
         return NULL;
@@ -68,9 +68,9 @@ client_t client_new_connect (int epollfd, const struct sockaddr *to,
     return create(clientfd, epollfd, to);
 }
 
-const struct sockaddr * client_get_addr (client_t cl)
+const sockaddr_t * client_get_addr (client_t cl)
 {
-    return (const struct sockaddr *) &cl->addr;
+    return &cl->addr;
 }
 
 void client_setfd (client_t cl, int newfd)
@@ -167,7 +167,7 @@ void client_del (client_t cl)
 }
 
 static
-int tcp_connect (const struct sockaddr *to)
+int tcp_connect (const sockaddr_t *to)
 {
     int fd;
 
@@ -177,7 +177,7 @@ int tcp_connect (const struct sockaddr *to)
         return -1;
     }
 
-    if (connect(fd, to, sockaddr_size(to)) == -1) {
+    if (connect(fd, &to->sa, sockaddr_size(to)) == -1) {
         print_err("Connecting", "connect", errno);
         close(fd);
         return -1;

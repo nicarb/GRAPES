@@ -4,34 +4,37 @@
 #include <netinet/in.h>
 #include <stdint.h>
 
-size_t sockaddr_size (const struct sockaddr *);
+typedef union {
+    struct sockaddr sa;
+    struct sockaddr_storage ss;
+    struct sockaddr_in sin;
+    struct sockaddr_in6 sin6;
+} sockaddr_t;
 
-uintptr_t sockaddr_hash (const struct sockaddr *);
+size_t sockaddr_size (const sockaddr_t *);
 
-int sockaddr_cmp (const struct sockaddr *sa0,
-                  const struct sockaddr *sa1);
+uintptr_t sockaddr_hash (const sockaddr_t *);
 
-int sockaddr_equal (const struct sockaddr *sa0,
-                    const struct sockaddr *sa1);
+int sockaddr_cmp (const sockaddr_t *sa0, const sockaddr_t *sa1);
 
-int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src);
+int sockaddr_equal (const sockaddr_t *sa0, const sockaddr_t *sa1);
 
-int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
-                     const void *src);
+int sockaddr_dump (void *dst, size_t dstsize, const sockaddr_t *src);
 
-struct sockaddr * sockaddr_copy (struct sockaddr *dst, 
-                                 const struct sockaddr * src);
+int sockaddr_undump (sockaddr_t *dst, size_t dstsize, const void *src);
 
-struct sockaddr * sockaddr_dup (const struct sockaddr *src);
+sockaddr_t * sockaddr_copy (sockaddr_t *dst, const sockaddr_t * src);
 
-const char * sockaddr_strrep (const struct sockaddr *, char *buffer,
+sockaddr_t * sockaddr_dup (const sockaddr_t *src);
+
+const char * sockaddr_strrep (const sockaddr_t *, char *buffer,
                               size_t buflen);
 
-uint16_t sockaddr_getport (const struct sockaddr *);
+uint16_t sockaddr_getport (const sockaddr_t *);
 
-int sockaddr_send_hello (const struct sockaddr *ouraddr, int fd);
+int sockaddr_send_hello (const sockaddr_t *ouraddr, int fd);
 
-int sockaddr_recv_hello (struct sockaddr *theiraddr, int fd);
+int sockaddr_recv_hello (sockaddr_t *theiraddr, int fd);
 
 /* Specific calls for sockaddr_in */
 

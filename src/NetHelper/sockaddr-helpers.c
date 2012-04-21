@@ -8,9 +8,9 @@
 #include <arpa/inet.h>
 
 static
-ssize_t get_size (const struct sockaddr *s)
+ssize_t get_size (const sockaddr_t *s)
 {
-    switch (s->sa_family) {
+    switch (s->sa.sa_family) {
         case AF_INET:
             return sizeof(struct sockaddr_in);
         case AF_INET6:
@@ -21,16 +21,16 @@ ssize_t get_size (const struct sockaddr *s)
     }
 }
 
-uint16_t sockaddr_getport (const struct sockaddr *s)
+uint16_t sockaddr_getport (const sockaddr_t *s)
 {
     uint16_t P;
 
-    switch (s->sa_family) {
+    switch (s->sa.sa_family) {
         case AF_INET:
-            P = ((const struct sockaddr_in *)s)->sin_port;
+            P = s->sin.sin_port;
             break;
         case AF_INET6:
-            P = ((const struct sockaddr_in6 *)s)->sin6_port;
+            P = s->sin6.sin6_port;
             break;
         default:
             print_err("Address analysis", NULL, EAFNOSUPPORT);
@@ -40,7 +40,7 @@ uint16_t sockaddr_getport (const struct sockaddr *s)
     return htons(P);
 }
 
-size_t sockaddr_size (const struct sockaddr *s)
+size_t sockaddr_size (const sockaddr_t *s)
 {
     size_t ret = get_size(s);
     if (ret == -1) {
@@ -49,7 +49,7 @@ size_t sockaddr_size (const struct sockaddr *s)
     return ret;
 }
 
-uintptr_t sockaddr_hash (const struct sockaddr *k)
+uintptr_t sockaddr_hash (const sockaddr_t *k)
 {
     uintptr_t h, g;
     size_t nbytes;
@@ -67,7 +67,7 @@ uintptr_t sockaddr_hash (const struct sockaddr *k)
     return h;
 }
 
-int sockaddr_cmp (const struct sockaddr *sa0, const struct sockaddr *sa1)
+int sockaddr_cmp (const sockaddr_t *sa0, const sockaddr_t *sa1)
 {
     size_t size0, size1;
 
@@ -77,13 +77,13 @@ int sockaddr_cmp (const struct sockaddr *sa0, const struct sockaddr *sa1)
     return memcmp(sa0, sa1, size0 < size1 ? size0 : size1);
 }
 
-int sockaddr_equal (const struct sockaddr *sa0,
-                    const struct sockaddr *sa1)
+int sockaddr_equal (const sockaddr_t *sa0,
+                    const sockaddr_t *sa1)
 {
     return sockaddr_cmp(sa0, sa1) == 0;
 }
 
-int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src)
+int sockaddr_dump (void *dst, size_t dstsize, const sockaddr_t *src)
 {
     size_t len;
 
@@ -94,52 +94,41 @@ int sockaddr_dump (void *dst, size_t dstsize, const struct sockaddr *src)
     return len;
 }
 
-int sockaddr_undump (struct sockaddr *dst, size_t dstsize,
+int sockaddr_undump (sockaddr_t *dst, size_t dstsize,
                      const void *src)
 {
     size_t len;
 
-    len = get_size((const struct sockaddr *)src);
+    len = get_size(src);
     if (len == -1 || dstsize < len) return -1;
     memcpy((void *)dst, src, len);
-
     return len;
 }
 
-struct sockaddr * sockaddr_copy (struct sockaddr *dst, 
-                                 const struct sockaddr * src)
+sockaddr_t * sockaddr_copy (sockaddr_t *dst, const sockaddr_t * src)
 {
-    memcpy((void *)dst, (const void *)src, sockaddr_size(src));
-    return dst;
+    return memcpy((void *)dst, (const void *)src, sockaddr_size(src));
 }
 
-struct sockaddr * sockaddr_dup (const struct sockaddr *src)
+sockaddr_t * sockaddr_dup (const sockaddr_t *src)
 {
-    return (struct sockaddr *) mem_dup((const void *)src,
-                                       sockaddr_size(src));
+    return (sockaddr_t *) mem_dup((const void *)src, sockaddr_size(src));
 }
 
-const char * sockaddr_strrep (const struct sockaddr *sa, char *buffer,
+const char * sockaddr_strrep (const sockaddr_t *s, char *buffer,
                               size_t buflen)
 {
     size_t req_size;
     const void * src;
 
-    union {
-        const struct sockaddr *sa;
-        const struct sockaddr_in *sa_in;
-        const struct sockaddr_in6 *sa_in6;
-    } addr;
-
-    addr.sa = sa;
-    switch (sa->sa_family) {
+    switch (s->sa.sa_family) {
         case AF_INET:
             req_size = INET_ADDRSTRLEN;
-            src = (const void *) &addr.sa_in->sin_addr;
+            src = (const void *) &s->sin.sin_addr;
             break;
         case AF_INET6:
             req_size = INET6_ADDRSTRLEN;
-            src = (const void *) &addr.sa_in6->sin6_addr;
+            src = (const void *) &s->sin6.sin6_addr;
             break;
         default:
             print_err("Address to string", NULL, EAFNOSUPPORT);
@@ -147,7 +136,7 @@ const char * sockaddr_strrep (const struct sockaddr *sa, char *buffer,
     }
 
     if (buflen < req_size) return NULL;
-    inet_ntop(sa->sa_family, src, buffer, buflen);
+    inet_ntop(s->sa.sa_family, src, buffer, buflen);
     return buffer;
 }
 
@@ -173,25 +162,21 @@ int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
     return 0;
 }
 
-int sockaddr_send_hello (const struct sockaddr *ouraddr, int fd)
+int sockaddr_send_hello (const sockaddr_t *ouraddr, int fd)
 {
-    struct sockaddr_storage out;
-
-    memcpy((void *)&out, (const void *) ouraddr, sockaddr_size(ouraddr));
-    return send_forced(fd, (const uint8_t *)&out, sizeof(out));
+    return send_forced(fd, (const uint8_t *)ouraddr, sizeof(sockaddr_t));
 }
 
-int sockaddr_recv_hello (struct sockaddr *theiraddr, int fd)
+int sockaddr_recv_hello (sockaddr_t *theiraddr, int fd)
 {
-    struct sockaddr_storage in;
     ssize_t len;
 
-    if (recv_forced(fd, (uint8_t *)&in, sizeof(in)) == -1) {
+    if (recv_forced(fd, (uint8_t *)theiraddr, sizeof(sockaddr_t)) == -1) {
         return -1;
     }
-    if ((len = get_size((const struct sockaddr *)&in)) == -1) {
+    len = get_size(theiraddr);
+    if (len == -1) {
         return -1;
     }
-    memcpy((void *)theiraddr, (const void *)&in, len);
     return 0;
 }

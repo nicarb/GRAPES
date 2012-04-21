@@ -79,6 +79,8 @@ static const char CONF_KEY_BACKLOG[] = "TCPBacklog";
 
 /* -- Interface exported symbols ------------------------------------- */
 
+#include <stdio.h>
+
 struct nodeID *nodeid_dup (struct nodeID *s)
 {
     nodeid_t *ret;
@@ -183,6 +185,9 @@ int send_to_peer(const struct nodeID *self, struct nodeID *to,
     };
 
     assert(self->local != NULL);
+
+    assert(self->paddr == (struct sockaddr *)&self->addr);
+    assert(to->paddr == (struct sockaddr *)&to->addr);
 
     local = self->local;
     record = dict_search(local->neighbors, to->paddr);

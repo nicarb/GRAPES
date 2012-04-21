@@ -2,15 +2,17 @@
 
 #include <dacav/dacav.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "utils.h"
+#include "sockaddr-helpers.h"
 #include "dictionary.h"
 
 struct inbox {
     dlist_t * queue;
 };
 
-static int scan_callback (void *ctx, const struct sockaddr *addr,
+static int scan_callback (void *ctx, const sockaddr_t *addr,
                           void *userdata, uint32_t *flags);
 
 inbox_t inbox_new ()
@@ -52,7 +54,7 @@ client_t inbox_next (inbox_t ib)
 }
 
 static
-int scan_callback (void *ctx, const struct sockaddr *addr, void *userdata,
+int scan_callback (void *ctx, const sockaddr_t *addr, void *userdata,
                    uint32_t *flags)
 {
     inbox_t ib;
@@ -60,7 +62,10 @@ int scan_callback (void *ctx, const struct sockaddr *addr, void *userdata,
 
     ib = (inbox_t) ctx;
     cl = (client_t) userdata;
-    if (!client_has_message(cl)) return 1; 
+
+    assert(sockaddr_equal(addr, client_get_addr(cl)));
+
+    if (!client_has_message(cl)) return 1;
     if (client_flag_enqueued(cl, 1)) return 1;
     ib->queue = dlist_append(ib->queue, (void *)cl);
     return 1;   /* Don't stop */
