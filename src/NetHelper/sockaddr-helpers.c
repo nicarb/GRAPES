@@ -119,8 +119,8 @@ struct sockaddr * sockaddr_dup (const struct sockaddr *src)
                                        sockaddr_size(src));
 }
 
-int sockaddr_strrep (const struct sockaddr *sa, char *buffer,
-                     size_t buflen)
+const char * sockaddr_strrep (const struct sockaddr *sa, char *buffer,
+                              size_t buflen)
 {
     size_t req_size;
     const void * src;
@@ -146,9 +146,9 @@ int sockaddr_strrep (const struct sockaddr *sa, char *buffer,
             abort();
     }
 
-    if (buflen < req_size) return -1;
+    if (buflen < req_size) return NULL;
     inet_ntop(sa->sa_family, src, buffer, buflen);
-    return req_size;
+    return buffer;
 }
 
 int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,

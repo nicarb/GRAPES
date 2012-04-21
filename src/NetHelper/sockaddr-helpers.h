@@ -24,7 +24,8 @@ struct sockaddr * sockaddr_copy (struct sockaddr *dst,
 
 struct sockaddr * sockaddr_dup (const struct sockaddr *src);
 
-int sockaddr_strrep (const struct sockaddr *, char *buffer, size_t buflen);
+const char * sockaddr_strrep (const struct sockaddr *, char *buffer,
+                              size_t buflen);
 
 uint16_t sockaddr_getport (const struct sockaddr *);
 
