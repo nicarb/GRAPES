@@ -88,9 +88,10 @@ int client_set_fd (client_t cl, int fd, int epollfd)
 
     if (cl->fd != -1) close(cl->fd);
     cl->fd = fd;
+    cl->epollfd = epollfd;
 
-    cl->send = poll_send_new(fd, cl->epollfd);
-    cl->recv = poll_recv_new(fd, cl->epollfd);
+    cl->send = poll_send_new(fd, epollfd);
+    cl->recv = poll_recv_new(fd, epollfd);
 
     if (cl->send == NULL || cl->recv == NULL) {
         cl->broken = 1;

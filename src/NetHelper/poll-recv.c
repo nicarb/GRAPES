@@ -162,6 +162,9 @@ void * poll_callback (void *ctx, int fd, int _epollfd)
         }
         if (n == 0) {
             pr->state = STOP;
+            if (pollcb_disable(pr->pcb) == -1) {
+                pr->state = ERROR;
+            }
             return ctx;
         }
         have_data = can_recv_more(fd);
