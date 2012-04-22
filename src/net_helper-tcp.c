@@ -134,8 +134,9 @@ struct nodeID *create_node (const char *IPaddr, int port)
 
     /* String representation (this part will be updated in the reentrant
      * branch of GRAPES) */
-    sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN);
-    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
+    sprintf(ret->repr.ip_port, "%s:%hu",
+            sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN),
+            (uint16_t)port);
 
     return ret;
 }
@@ -281,8 +282,8 @@ struct nodeID *nodeid_undump (const uint8_t *b, int *len)
 
     /* String representation (this part will be updated in the reentrant
      * branch of GRAPES) */
-    sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN);
-    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
+    sprintf(ret->repr.ip_port, "%s:%hu",
+            sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN),
             (uint16_t) sockaddr_getport(&ret->addr));
 
     *len = sockaddr_size(&ret->addr);

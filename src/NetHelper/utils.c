@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 
 /* 4 MiB, is this reasonable? */
-static const size_t MAX_MESSAGE_SIZE = 1<<22;   
+static const size_t MAX_MESSAGE_SIZE = 1<<22;
 
 void * mem_renew (void * ptr, size_t size)
 {
