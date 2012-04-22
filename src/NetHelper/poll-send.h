@@ -10,7 +10,8 @@ typedef struct poll_send * poll_send_t;
 typedef enum {
     POLL_SEND_FAIL = -1,
     POLL_SEND_SUCCESS = 0,
-    POLL_SEND_BUSY = 1
+    POLL_SEND_BUSY,
+    POLL_SEND_STOP
 } poll_send_res_t;
 
 poll_send_t poll_send_new (int fd, int epollfd);

@@ -9,7 +9,7 @@ typedef struct poll_recv * poll_recv_t;
 typedef enum {
     POLL_RECV_FAIL = -1,
     POLL_RECV_SUCCESS = 0,
-    POLL_RECV_BUSY = 1,
+    POLL_RECV_BUSY,
     POLL_RECV_STOP
 } poll_recv_res_t;
 

@@ -14,7 +14,8 @@ typedef enum {
     IDLE,
     SENDING_HDR,
     SENDING_MSG,
-    ERROR
+    ERROR,
+    STOP
 } state_t;
 
 struct poll_send {
@@ -46,7 +47,13 @@ poll_send_t poll_send_new (int fd, int epollfd)
 
 int poll_send_is_alive (poll_send_t ps)
 {
-    return pollcb_is_alive(ps->pcb);
+    switch (ps->state) {
+        case ERROR:
+        case STOP:
+            return 0;
+        default:
+            return pollcb_is_alive(ps->pcb);
+    }
 }
 
 poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg)
@@ -56,6 +63,8 @@ poll_send_res_t poll_send_enqueue (poll_send_t ps, const msg_buf_t *msg)
             break;
         case ERROR:
             return POLL_SEND_FAIL;
+        case STOP:
+            return POLL_SEND_STOP;
         default:
             return POLL_SEND_BUSY;
     }
@@ -124,6 +133,13 @@ void * poll_callback (void *ctx, int fd, int _epollfd)
                         return ctx;
                     }
                 }
+        }
+        if (n == 0) {
+            ps->state = STOP;
+            if (pollcb_disable(ps->pcb) == -1) {
+                ps->state = ERROR;
+            }
+            return ctx;
         }
         can_send = can_send_more(fd);
         if (can_send == -1) {
