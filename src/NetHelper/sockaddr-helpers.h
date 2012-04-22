@@ -38,7 +38,7 @@ int sockaddr_recv_hello (sockaddr_t *theiraddr, int fd);
 
 /* Specific calls for sockaddr_in */
 
-int sockaddr_in_init (struct sockaddr_in *in, const char *ipaddr,
+int sockaddr_in_init (sockaddr_t *in, const char *ipaddr,
                       uint16_t port);
 
 #endif // SOCKADDR_HELPERS_H

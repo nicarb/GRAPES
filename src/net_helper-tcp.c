@@ -126,8 +126,7 @@ struct nodeID *create_node (const char *IPaddr, int port)
      *      Note that this works only for ipv4. The internal functions in
      *      sockaddr-helpers, however, should be ipv6-ready.
      */
-    if (sockaddr_in_init(&ret->addr.sin,
-                         IPaddr, port) == -1) {
+    if (sockaddr_in_init(&ret->addr, IPaddr, port) == -1) {
         free(ret);
         return NULL;
     }
