@@ -31,6 +31,7 @@ pollcb_t pollcb_new (pollcb_cb_t cb, void * ctx, int fd, int epollfd)
 
     ret->fd = dup(fd);
     if (ret->fd == -1) {
+        print_err("pollcb_new", "dup", errno);
         pollcb_del(ret);
         return NULL;
     }

@@ -33,7 +33,11 @@ server_t server_new (const sockaddr_t *addr, int backlog,
     srv = mem_new(sizeof(struct server));
     srv->neighbors = neighbors;
     srv->cb = pollcb_new(poll_callback, (void *)srv, fd, epollfd);
-    close(fd);  /* Note: fd is dup()licated inside pollcb_new */
+    if (srv->cb == NULL) {
+        server_del(srv);
+        return NULL;
+    }
+    close(fd);
 
     if (pollcb_enable(srv->cb, EPOLLIN) == -1) {
         print_err("Creating server", "epoll_ctl", errno);
