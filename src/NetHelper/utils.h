@@ -30,5 +30,7 @@ ssize_t header_get_size (header_t *hdr);
 
 void header_set_size (header_t *hdr, size_t s);
 
+int invalid_fd (int fd);
+
 #endif // UTILS_H
 

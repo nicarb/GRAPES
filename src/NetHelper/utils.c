@@ -2,6 +2,7 @@
 #include "nh-types.h"
 
 #include <stdlib.h>
+#include <fcntl.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -92,4 +93,9 @@ ssize_t header_get_size (header_t *hdr)
 void header_set_size (header_t *hdr, size_t s)
 {
     hdr->size = htonl(s);
+}
+
+int invalid_fd (int fd)
+{
+    return fcntl(fd, F_GETFD) == -1;
 }

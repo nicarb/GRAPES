@@ -447,5 +447,5 @@ void user_poll_clear (user_poll_t *upoll)
         pollcb_disable(upoll->cb);
         pollcb_del(upoll->cb);
     }
-    close(upoll->allfd);
+    if (upoll->allfd != -1) close(upoll->allfd);
 }

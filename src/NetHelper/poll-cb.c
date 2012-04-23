@@ -2,7 +2,6 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <assert.h>
 
 #include "utils.h"
@@ -15,25 +14,32 @@ struct pollcb {
     int fd;
 
     unsigned enabled : 1;
-    unsigned seppuku : 1;
+    unsigned dead : 1;
 };
+
+static void flag_dead (pollcb_t p);
 
 pollcb_t pollcb_new (pollcb_cb_t cb, void * ctx, int fd, int epollfd)
 {
     pollcb_t ret;
 
-    ret = mem_new(sizeof(struct pollcb));
-    ret->cb = cb;
-    ret->ctx = ctx;
-    ret->epollfd = epollfd;
-    ret->enabled = 0;
-    ret->seppuku = 0;
-    ret->fd = dup(fd);
+    if (invalid_fd(fd) || invalid_fd(epollfd)) {
+        return NULL;
+    }
 
+    ret = mem_new(sizeof(struct pollcb));
+
+    ret->fd = dup(fd);
     if (ret->fd == -1) {
         pollcb_del(ret);
         return NULL;
     }
+
+    ret->cb = cb;
+    ret->ctx = ctx;
+    ret->epollfd = epollfd;
+    ret->enabled = 0;
+    ret->dead = 0;
 
     return ret;
 }
@@ -41,23 +47,15 @@ pollcb_t pollcb_new (pollcb_cb_t cb, void * ctx, int fd, int epollfd)
 void pollcb_del (pollcb_t p)
 {
     if (p == NULL) return;
-
-    if (p->enabled) {
-        p->seppuku = 1;
-    } else {
-        close(p->fd);
-        free(p);
-    }
+    close(p->fd);
+    free(p);
 }
 
 void pollcb_run (pollcb_t p)
 {
-    if (p->seppuku) {
-        assert(p->enabled);
-        pollcb_disable(p);
-        p->seppuku = 0;
-        pollcb_del(p);
-    } else {
+    if (invalid_fd(p->fd) || invalid_fd(p->epollfd)) {
+        flag_dead(p);
+    } else if (!p->dead) {
         p->ctx = p->cb(p->ctx, p->fd, p->epollfd);
     }
 }
@@ -71,9 +69,11 @@ int pollcb_enable (pollcb_t p, uint32_t events)
 
     if (epoll_ctl(p->epollfd, EPOLL_CTL_ADD, p->fd, &ev) == -1) {
         print_err("epoll_ctl", "add", errno);
+        flag_dead(p);
         return -1;
     }
     p->enabled = 1;
+
     return 0;
 }
 
@@ -84,21 +84,29 @@ int pollcb_disable (pollcb_t p)
         .data.ptr = NULL
     };
 
+    p->enabled = 0;
     if (epoll_ctl(p->epollfd, EPOLL_CTL_DEL, p->fd, &ev) == -1) {
         print_err("epoll_ctl", "del", errno);
+        flag_dead(p);
         return -1;
     }
-    p->enabled = 0;
 
     return 0;
 }
 
 int pollcb_is_alive (pollcb_t p)
 {
-    if (p->enabled) return 1;
-
-    /* Both file descriptors are still valid */
-    return (fcntl(p->fd, F_GETFD) != -1) &&
-           (fcntl(p->epollfd, F_GETFD) != -1);
+    if (invalid_fd(p->fd) || invalid_fd(p->epollfd)) {
+        flag_dead(p);
+    }
+    return p->enabled || !p->dead;
 }
 
+static
+void flag_dead (pollcb_t p)
+{
+    if (p->enabled) {
+        pollcb_disable(p);
+    }
+    p->dead = 1;
+}

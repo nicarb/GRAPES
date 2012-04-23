@@ -1,7 +1,6 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdlib.h>
 
 #include "client.h"
@@ -133,7 +132,7 @@ int client_valid (client_t cl)
         return 1;
     }
 
-    return fcntl(cl->fd, F_GETFD) != -1 &&  // valid fd
+    return !invalid_fd(cl->fd) &&
            poll_recv_is_alive(cl->recv) &&
            poll_send_is_alive(cl->send) &&
            !(tout_expired(cl->tout) || cl->broken);
