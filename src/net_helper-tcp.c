@@ -157,7 +157,7 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
         return NULL;
     }
 
-    cfg = config_parse(config);
+    cfg = config ? config_parse(config) : NULL;
     if ((self->local = local_new(&self->addr, cfg)) == NULL) {
         free(cfg);
         nodeid_free(self);
