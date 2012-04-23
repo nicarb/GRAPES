@@ -5,69 +5,80 @@
  *  This is free software; see lgpl-2.1.txt
  */
 
-#include <arpa/inet.h>
-#include <assert.h>
-#include <errno.h>
 #include <netinet/in.h>
-#include <stdio.h>
+#include <arpa/inet.h>
+#include <sys/epoll.h>
+#include <sys/time.h>
+#include <sys/select.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
+#include <stdio.h>
+#include <errno.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "net_helper.h"
 #include "config.h"
-#include "NetHelper/fair.h"
-#include "NetHelper/dictionary.h"
 
-// FIXME : remove
-#include <stdio.h>
+#include "NetHelper/sockaddr-helpers.h"
+#include "NetHelper/utils.h"
+#include "NetHelper/server.h"
+#include "NetHelper/poll-cb.h"
+#include "NetHelper/client.h"
+#include "NetHelper/inbox.h"
+#include "NetHelper/timeout.h"
 
 /* -- Internal data types -------------------------------------------- */
 
 typedef struct {
-    int fd;
-    int sendretry;              // Number of retry in sending data
-    dict_t neighbours;
-    connection_t cached_peer;   // Cached during wait4data, used in
-                                // recv_from_peer
     unsigned refcount;          // Reference counter (workaround for node
                                 // copying).
+    int pollfd;
+    server_t server;
+    dict_t neighbors;
+    inbox_t inbox;
+
 } local_info_t;
 
 typedef struct nodeID {
-    struct sockaddr_in addr;
+    sockaddr_t addr;                // local addr (pointed by paddr)
+    local_info_t *local;            // non-NULL only for local node
+
     struct {
         char ip[INET_ADDRSTRLEN];           // ip address
         char ip_port[INET_ADDRSTRLEN + 6];  // ip:port 2^16 -> 5 cyphers.
     } repr;                         // reentrant string representations
-    local_info_t *local;            // non-NULL only for local node
 } nodeid_t;
+
+typedef struct {
+    int *user_fds;
+    unsigned n_user_fds;
+    int wakeup;
+    pollcb_t cb;
+    int allfd;
+} user_poll_t;
 
 /* -- Internal functions --------------------------------------------- */
 
-static int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e);
-static int tcp_serve (nodeid_t *sd, int backlog, int *e);
-static int tcp_accept_queue (const nodeid_t *sd, int *e);
-static void print_err (int e, const char *msg);
-static int get_peer (dict_t neighbours, struct sockaddr_in *addr);
-static inline int would_block (int e);
-static inline int dead_filedescriptor (int e);
-static nodeid_t * addr_to_nodeid (const struct sockaddr_in *addr);
-static int wait_incoming (const nodeid_t *self, struct timeval *tout,
-                          fd_set *S, int nfds, int *e);
+static local_info_t * local_new (sockaddr_t *addr, struct tag *cfg);
+static void local_del (local_info_t *l);
+static int local_run_epoll (local_info_t *l, int toutmilli);
+
+/* -- Internal functions for user file descriptors ------------------- */
+static void * user_poll_callback (void *ctx, int uefd, int epollfd);
+static int user_poll_init (user_poll_t *upoll, int *user_fds, int pollfd);
+static void user_poll_clear (user_poll_t *upoll);
 
 /* -- Constants ------------------------------------------------------ */
 
-static const char *   CONF_KEY_BACKLOG = "tcp_backlog";
-static const unsigned DEFAULT_BACKLOG = 50;
-static const char *   CONF_KEY_SENDRETRY = "tcp_send_retry";
-static const int      DEFAULT_SENDRETRY = 3;
+static const size_t MAX_CHECKED_EVENTS = 32;
 
-static const size_t   ERR_BUFLEN = 64;
+static const unsigned DEFAULT_BACKLOG = 5;
+static const char CONF_KEY_BACKLOG[] = "TCPBacklog";
 
 /* -- Interface exported symbols ------------------------------------- */
+
+#include <stdio.h>
 
 struct nodeID *nodeid_dup (struct nodeID *s)
 {
@@ -75,7 +86,9 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 
     if (s->local == NULL) {
         ret = malloc(sizeof(nodeid_t));
-        if (ret == NULL) return NULL;
+        if (ret == NULL) {
+            return NULL;
+        }
         memcpy(ret, s, sizeof(nodeid_t));
     } else {
         /* This reference counter trick will avoid copying around of the
@@ -92,62 +105,44 @@ struct nodeID *nodeid_dup (struct nodeID *s)
 */
 int nodeid_cmp (const nodeid_t *s1, const nodeid_t *s2)
 {
-    return memcmp(&s1->addr, &s2->addr, sizeof(struct sockaddr_in));
+    return sockaddr_cmp(&s1->addr, &s2->addr);
 }
 
 /* @return 1 if the two nodeID are identical or 0 if they are not. */
 int nodeid_equal (const nodeid_t *s1, const nodeid_t *s2)
 {
-    return nodeid_cmp(s1, s2) == 0;
+    return sockaddr_equal(&s1->addr, &s2->addr);
 }
 
 struct nodeID *create_node (const char *IPaddr, int port)
 {
-    nodeid_t *ret = malloc(sizeof(nodeid_t));
-    if (ret == NULL) {
+    nodeid_t *ret;
+
+    ret = mem_new(sizeof(nodeid_t));
+    ret->local = NULL;
+
+    /* Initialization of address:
+     *
+     *      Note that this works only for ipv4. The internal functions in
+     *      sockaddr-helpers, however, should be ipv6-ready.
+     */
+    if (sockaddr_in_init(&ret->addr, IPaddr, port) == -1) {
+        free(ret);
         return NULL;
     }
 
-    /* Initialization of address */
-    memset(&ret->addr, 0, sizeof(struct sockaddr_in));
-    ret->addr.sin_family = AF_INET;
-    ret->addr.sin_port = htons(port);
-
-    /* Initialization of string representation */
-    if (IPaddr == NULL) {
-        /* In case of server, specifying NULL will allow anyone to
-         * connect. */
-        ret->addr.sin_addr.s_addr = INADDR_ANY;
-        inet_ntop(AF_INET, (const void *)&ret->addr.sin_addr,
-                  ret->repr.ip, INET_ADDRSTRLEN);
-    } else {
-        if (inet_pton(AF_INET, IPaddr,
-                      (void *)&ret->addr.sin_addr) == 0) {
-            fprintf(stderr, "Invalid ip address %s\n", IPaddr);
-            free(ret);
-            return NULL;
-        }
-        strcpy(ret->repr.ip, IPaddr);
-    }
-    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip, (uint16_t)port);
-
-    /* The `local` pointer must be NULL for all instances except for an
-     * instance initializated through `net_helper_init` */
-    ret->local = NULL;
+    /* String representation (this part will be updated in the reentrant
+     * branch of GRAPES) */
+    sprintf(ret->repr.ip_port, "%s:%hu",
+            sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN),
+            (uint16_t)port);
 
     return ret;
 }
 
 void nodeid_free (struct nodeID *s)
 {
-    local_info_t *local = s->local;
-    if (local != NULL) {
-        if (-- local->refcount == 0) {
-            dict_delete(local->neighbours);
-            close(local->fd);
-            free(local);
-        }
-    }
+    local_del(s->local);
     free(s);
 }
 
@@ -155,220 +150,149 @@ struct nodeID * net_helper_init (const char *IPaddr, int port,
                                  const char *config)
 {
     nodeid_t *self;
-    struct tag *cfg_tags;
-    int backlog;
-    int e;
-    local_info_t *local;
+    struct tag *cfg;
 
     self = create_node(IPaddr, port);
     if (self == NULL) {
         return NULL;
     }
 
-    self->local = local = malloc(sizeof(local_info_t));
-    if (local == NULL) {
+    cfg = config ? config_parse(config) : NULL;
+    if ((self->local = local_new(&self->addr, cfg)) == NULL) {
+        free(cfg);
         nodeid_free(self);
         return NULL;
     }
-
-    /* Default settings */
-    local->sendretry = DEFAULT_SENDRETRY;
-    backlog = DEFAULT_BACKLOG;
-
-    /* Reading settings */
-    cfg_tags = NULL;
-    if (config) {
-        cfg_tags = config_parse(config);
-    }
-    if (cfg_tags) {
-        config_value_int_default(cfg_tags, CONF_KEY_BACKLOG, &backlog,
-                                 DEFAULT_BACKLOG);
-        config_value_int_default(cfg_tags, CONF_KEY_SENDRETRY,
-                                 &local->sendretry,
-                                 DEFAULT_SENDRETRY);
-    }
-    local->neighbours = dict_new(AF_INET, 1, cfg_tags);
-    local->cached_peer.fd = -1;
-    local->refcount = 1;
-
-    free(cfg_tags);
-
-    if (tcp_serve(self, backlog, &e) < 0) {
-        print_err(e, "creating server");
-        nodeid_free(self);
-        return NULL;
-    }
+    free(cfg);
 
     return self;
 }
 
 void bind_msg_type(uint8_t msgtype) {}
 
-/* TODO: Ask fix for the constantness of first parameter this? */
 int send_to_peer(const struct nodeID *self, struct nodeID *to,
                  const uint8_t *buffer_ptr, int buffer_size)
 {
-    int retry;
-    ssize_t sent;
-    int peer_fd;
     local_info_t *local;
-    int e;
+    client_t client;
+    const msg_buf_t msg = {
+        .data = (const void *)buffer_ptr,
+        .size = (size_t) buffer_size
+    };
 
-    if (buffer_size <= 0) {
-        return 0;
-    }
+    assert(self->local != NULL);
 
     local = self->local;
-    assert(local != NULL);          // TODO: remove after testing
-    assert(to->local == NULL);      // TODO: ditto
+    client = dict_search(local->neighbors, &to->addr);
 
-    if (tcp_accept_queue(self, &e) == -1) {
-        print_err(e, "send_to_peer, getting connections");
+    if (client_connect(client, &to->addr, local->pollfd) == -1) {
+        return -1;
     }
-    peer_fd = get_peer(local->neighbours, &to->addr);
-    if (peer_fd == -1) {
+    if (client_send_hello(client, &self->addr)) {
         return -1;
     }
 
-    retry = local->sendretry;
-    sent = 0;
-    while (retry && buffer_size > 0) {
-        ssize_t n = send(peer_fd, buffer_ptr, buffer_size, MSG_DONTWAIT);
-        if (n <= 0) {
-            if (would_block(errno)) {
-                retry --;
-            } else if (dead_filedescriptor(errno)) {
-                dict_remove(local->neighbours, (struct sockaddr *)&to->addr);
-                retry = 0;
-                if (sent == 0) sent = -1;
-            }
-        } else {
-            buffer_ptr += n;
-            sent += n;
-            buffer_size -= n;
-        }
+    local_run_epoll(local, 0);
+    if (client_write(client, &msg) == -1) {
+        return -1;
     }
+    local_run_epoll(local, 0);
 
-    return sent;
+    return buffer_size;
 }
 
 int recv_from_peer(const struct nodeID *self, struct nodeID **remote,
                    uint8_t *buffer_ptr, int buffer_size)
 {
     local_info_t *local;
-    connection_t *peer;
-    int retval;
+    client_t from;
+    const sockaddr_t *fromaddr;
+    const msg_buf_t *msg;
+    int size;
 
-    assert(self->local != NULL);        // TODO: remove after testing
+    assert(self->local != NULL);
     local = self->local;
-    peer = &local->cached_peer;
-    if (peer->fd == -1) {
-        int err;
-        fd_set fds;
 
-        /* No cache from wait4data */
-        FD_ZERO(&fds);
-        if (wait_incoming(self, NULL, &fds, 0, &err) == -1) {
-            print_err(err, "recv_from_peer, waiting");
+    while (inbox_empty(local->inbox)) {
+        if (local_run_epoll(local, -1)) {
             return -1;
         }
+        inbox_scan_dict(local->inbox, local->neighbors);
     }
 
-    if ((*remote = addr_to_nodeid((const struct sockaddr_in *)peer->addr))
-            == NULL) {
+    from = inbox_next(local->inbox);
+    msg = client_read(from);
+    if (msg == NULL) {
+        print_err("Retrieving message", NULL, EBADFD);
         return -1;
     }
 
-    retval = 0;
-    while (buffer_size > 0) {
-        ssize_t n;
-
-        switch (n = recv(peer->fd, buffer_ptr, buffer_size, 0)) {
-            case -1:
-                print_err(errno, "receiving");
-            case 0:
-                buffer_size = 0;
-                dict_remove(local->neighbours, peer->addr);
-                break;
-            default:
-                buffer_size -= n;
-                buffer_ptr += n;
-                retval += n;
-        }
+    if (msg->size > buffer_size) {
+        print_err("Retrieving message", NULL, ENOBUFS);
+        return -1;
     }
 
-    peer->fd = -1;
-    return retval;
+    fromaddr = client_get_addr(from);
+    size = (int) sockaddr_size(fromaddr);
+    *remote = nodeid_undump((const uint8_t *) fromaddr, &size);
+    assert(*remote != NULL);    // NULL here makes no sense!
+
+    memcpy((void *)buffer_ptr, msg->data, msg->size);
+    return msg->size;
 }
 
 int wait4data(const struct nodeID *self, struct timeval *tout,
               int *user_fds)
 {
-    fd_set fdset;
-    int err;
-    int i;
-    int maxfd;
+    unsigned now, time_limit;
+    local_info_t *local;
+    user_poll_t user_poll;
 
-    assert(self->local != NULL);        // TODO: remove after testing
-    FD_ZERO(&fdset);
-    maxfd = -1;
+    assert(self->local != NULL);
 
-    if (user_fds) {
-        for (i = 0; user_fds[i] != -1; i++) {
-            FD_SET(user_fds[i], &fdset);
-            if (user_fds[i] > maxfd) {
-                maxfd = user_fds[i];
-            }
-        }
-    }
-
-    if (wait_incoming(self, tout, &fdset, maxfd + 1, &err)
-            == -1) {
-        print_err(err, "wait4data, waiting");
+    local = self->local;
+    if (user_poll_init(&user_poll, user_fds, local->pollfd) == -1) {
         return -1;
     }
+    time_limit = tout_now_ms() + tout_timeval_to_ms(tout);
 
-    if (user_fds && self->local->cached_peer.fd == -1) {
-        /* Update externally provided file descriptors as
-         * expected by outside algorithms */
-        for (i = 0; user_fds[i] != -1; i++) {
-            if (!FD_ISSET(user_fds[i], &fdset)) {
-                user_fds[i] = -2;
-            }
+    while (inbox_empty(local->inbox) && !user_poll.wakeup &&
+           (now = tout_now_ms()) < time_limit) {
+        if (local_run_epoll(local, time_limit - now) == -1) {
+            user_poll_clear(&user_poll);
+            return -1;
         }
-        return 2;
+        inbox_scan_dict(local->inbox, local->neighbors);
     }
-    return 1;
+    user_poll_clear(&user_poll);
+
+    return (inbox_empty(local->inbox) && !user_poll.wakeup) ? 0 : 1;
 }
 
 struct nodeID *nodeid_undump (const uint8_t *b, int *len)
 {
-    nodeid_t *ret = malloc(sizeof(nodeid_t));
-    if (ret == NULL) {
+    nodeid_t *ret;
+
+    ret = create_node(NULL, 0);
+    if (sockaddr_undump(&ret->addr, sizeof(struct sockaddr_storage),
+                        (const void *)b) == -1) {
         return NULL;
     }
 
-    memcpy((void *)&ret->addr, (const void *)b,
-            sizeof(struct sockaddr_in));
-    inet_ntop(AF_INET, (const void *)b, ret->repr.ip,
-              sizeof(struct sockaddr_in));
-    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
-            ntohs(ret->addr.sin_port));
-    ret->local = NULL;
+    /* String representation (this part will be updated in the reentrant
+     * branch of GRAPES) */
+    sprintf(ret->repr.ip_port, "%s:%hu",
+            sockaddr_strrep(&ret->addr, ret->repr.ip, INET_ADDRSTRLEN),
+            (uint16_t) sockaddr_getport(&ret->addr));
 
+    *len = sockaddr_size(&ret->addr);
     return ret;
 }
 
 int nodeid_dump (uint8_t *b, const struct nodeID *s,
                  size_t max_write_size)
 {
-    assert(s->local == NULL);   // TODO: remove after testing
-
-    if (max_write_size < sizeof(struct sockaddr_in)) {
-        return -1;
-    }
-    memcpy((void *)b, (const void *)&s->addr, sizeof(struct sockaddr_in));
-    return sizeof(struct sockaddr_in);
+    return sockaddr_dump((void *)b, max_write_size, &s->addr);
 }
 
 const char *node_ip(const struct nodeID *s)
@@ -384,218 +308,144 @@ const char *node_addr (const struct nodeID *s)
 /* -- Internal functions --------------------------------------------- */
 
 static
-int tcp_connect (struct sockaddr_in *to, int *out_fd, int *e)
+local_info_t * local_new (sockaddr_t *addr, struct tag *cfg)
 {
-    int fd;
+    local_info_t * L;
+    int tcp_backlog;
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd == -1) {
-        if (e) *e = errno;
+    L = mem_new(sizeof(local_info_t));
+    L->refcount = 1;
+    L->pollfd = -1;
+    L->server = NULL;
+    L->neighbors = NULL;
+    L->inbox = NULL;
+
+    if ((L->pollfd = epoll_create1(0)) == -1) {
+        print_err("Net-helper (tcp)", "epoll_create", errno);
+        return NULL;
+    }
+
+    tcp_backlog = DEFAULT_BACKLOG;
+    if (cfg) {
+        config_value_int_default(cfg, CONF_KEY_BACKLOG, &tcp_backlog,
+                                 DEFAULT_BACKLOG);
+    }
+
+    if ((L->neighbors = dict_new(cfg)) == NULL) {
+        local_del(L);
+        return NULL;
+    }
+    L->inbox = inbox_new();
+    if ((L->server = server_new(addr, tcp_backlog, L->pollfd,
+                                L->neighbors)) == NULL) {
+        local_del(L);
+        return NULL;
+    }
+
+    return L;
+}
+
+static
+void local_del (local_info_t *L)
+{
+    if (L == NULL) return;
+    if (-- L->refcount > 0) return;
+
+    close(L->pollfd);
+    server_del(L->server);
+    dict_del(L->neighbors);
+    inbox_del(L->inbox);
+    free(L);
+}
+
+static
+int local_run_epoll (local_info_t *l, int toutmilli)
+{
+    struct epoll_event events[MAX_CHECKED_EVENTS];
+    int i, nev;
+
+    nev = epoll_wait(l->pollfd, events, MAX_CHECKED_EVENTS, toutmilli);
+    if (nev == -1) {
+        print_err("Polling", "epoll_wait", errno);
         return -1;
     }
 
-    if (connect(fd, (struct sockaddr *)to,
-                sizeof(struct sockaddr_in)) == -1) {
-        if (e) *e = errno;
-        close(fd);
-        return -2;
+    for (i = 0; i < nev; i ++) {
+        pollcb_run((pollcb_t) events[i].data.ptr);
     }
-    *out_fd = fd;
 
     return 0;
 }
 
 static
-int tcp_serve (nodeid_t *sd, int backlog, int *e)
+void * user_poll_callback (void *ctx, int uefd, int epollfd)
+{
+    user_poll_t * upoll = ctx;
+    int i, N;
+    struct epoll_event events[upoll->n_user_fds];
+
+    upoll->wakeup = 1;
+
+    N = epoll_wait(uefd, events, upoll->n_user_fds, 0);
+    for (i = 0; i < N; i ++) {
+        int *ufd = (int *)events[i].data.ptr;
+        *ufd = -2;  // According to original versions of net_helper-udp
+    }
+
+    return ctx;
+}
+
+static
+int user_poll_init (user_poll_t *upoll, int *user_fds, int pollfd)
 {
     int fd;
-    assert(sd->local != NULL);  // TODO: remove when it works.
+    unsigned i;
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
+    upoll->wakeup = 0;
+    upoll->cb = NULL;
+    upoll->allfd = -1;
+
+    if (user_fds == NULL) {
+        /* We just don't need this */
+        return 0;
+    }
+
+    upoll->user_fds = user_fds;
+
+    fd = epoll_create1(0);
     if (fd == -1) {
-        if (e) *e = errno;
+        print_err("Net-helper", "epoll_create", errno);
         return -1;
     }
+    upoll->allfd = fd;
+    for (i = 0; user_fds[i] != -1; i ++) {
+        struct epoll_event ev;
 
-    if (bind(fd, (struct sockaddr *) &sd->addr,
-             sizeof(struct sockaddr_in))) {
-        if (e) *e = errno;
-        close(fd);
-        return -2;
-    }
-
-    if (listen(fd, backlog) == -1) {
-        if (e) *e = errno;
-        close(fd);
-        return -3;
-    }
-    sd->local->fd = fd;
-
-    return 0;
-}
-
-static
-int tcp_accept_queue (const nodeid_t *sd, int *e)
-{
-    /* TODO: a possible optimization would be avoiding the first select if
-     * we already know there's a connection waiting in the backlog queue.
-     */
-    int servfd;
-    int need_test;
-
-    assert(sd->local != NULL);      // TODO remvoe after testing
-
-    servfd = sd->local->fd;
-    need_test = 1;
-
-    while (need_test) {
-        fd_set S;
-        socklen_t len;
-        int clifd;
-        struct sockaddr_in incoming;
-        struct timeval nowait = {0, 0};
-
-        FD_ZERO(&S);
-        FD_SET(servfd, &S);
-        switch (select(servfd + 1, &S, NULL, NULL, &nowait)) {
-
-            case -1:
-                /* Error. */
-                if (e) *e = errno;
-                return -1;
-
-            case 0:
-                /* Timeout, no more connections. */
-                need_test = 0;
-                break;
-
-            default:
-                /* We have an incoming connection, let's accept it and
-                 * store into the neighbors dictionary. */
-
-                len = sizeof(struct sockaddr_in);
-                clifd = accept(servfd, (struct sockaddr *)&incoming,
-                               &len);
-                if (clifd == -1) {
-                    print_err(errno, "accepting");
-                    return -1;
-                }
-                dict_insert(sd->local->neighbours,
-                            (const struct sockaddr *)&incoming, clifd);
-        }
-    }
-
-    return 0;
-}
-
-/* perror-like with parametrized error */
-static
-void print_err (int e, const char *msg)
-{
-    char buf[ERR_BUFLEN];
-    strerror_r(e, buf, ERR_BUFLEN);
-    if (msg) {
-        fprintf(stderr, "net-helper-tcp: %s: %s\n", msg, buf);
-    } else {
-        fprintf(stderr, "net_helper-tcp: %s\n", buf);
-    }
-}
-
-/* TODO: this can be optimized using new features for dictionaries */
-static
-int get_peer (dict_t neighbours, struct sockaddr_in *addr)
-{
-    peer_info_t peer;
-
-    if (dict_lookup(neighbours, (const struct sockaddr *) addr,
-                    &peer) == -1) {
-        /* We don't have the address stored, thus we need to connect */
-
-        int err;
-
-        if (tcp_connect(addr, &peer.fd, &err) < 0) {
-            print_err(err, "connecting to peer");
+        ev.events = EPOLLIN;
+        ev.data.ptr = (void *) &user_fds[i];
+        if (epoll_ctl(fd, EPOLL_CTL_ADD, user_fds[i], &ev) == -1) {
+            print_err("user poll", "epoll_ctl", errno);
+            user_poll_clear(upoll);
             return -1;
         }
-
-        dict_insert(neighbours, (struct sockaddr *) addr, peer.fd);
     }
-
-    return peer.fd;
-}
-
-static inline
-int would_block (int e)
-{
-    return e == EAGAIN||
-           e == EWOULDBLOCK;
-}
-
-static inline
-int dead_filedescriptor (int e)
-{
-    return e == ECONNRESET ||
-           e == EBADF ||
-           e == ENOTCONN;
-}
-
-static
-nodeid_t * addr_to_nodeid (const struct sockaddr_in *addr)
-{
-    nodeid_t *ret;
-
-    ret = malloc(sizeof(nodeid_t));
-    if (ret == NULL) return NULL;
-
-    ret->local = NULL;
-    memcpy((void *)&ret->addr, (const void *)addr,
-           sizeof(struct sockaddr_in));
-    inet_ntop(AF_INET, (const void *)&ret->addr.sin_addr,
-              ret->repr.ip, INET_ADDRSTRLEN);
-    sprintf(ret->repr.ip_port, "%s:%hu", ret->repr.ip,
-            ntohs(addr->sin_port));
-
-    return ret;
-}
-
-static
-int wait_incoming (const nodeid_t *self, struct timeval *tout, fd_set *S,
-                   int nfds, int *e)
-{
-    int was_accept;
-    local_info_t *local;
-
-    local = self->local;
-    nfds --;
-    FD_SET(local->fd, S);
-    if (local->fd > nfds) {
-        nfds = local->fd;
+    upoll->n_user_fds = i;
+    upoll->cb = pollcb_new(user_poll_callback, (void *)upoll,
+                           upoll->allfd, pollfd);
+    if (pollcb_enable(upoll->cb, EPOLLIN) == -1) {
+        user_poll_clear(upoll);
+        return -1;
     }
-
-    do {
-        was_accept = 0;
-        switch (fair_select(local->neighbours, tout, S, nfds + 1,
-                            &local->cached_peer, e)) {
-
-            case -1:
-                /* Error. `e` output parameter already set by
-                 * `fair_select`. */
-                return -1;
-
-            case 0:
-                /* Timeout. Simply no data nor connections. */
-                return 0;
-
-        }
-
-        if (FD_ISSET(local->fd, S)) {
-            /* We have some new incoming connection. */
-            if (tcp_accept_queue(self, e) == -1) {
-                return -1;
-            }
-            was_accept = 1;
-        }
-    } while (was_accept);
 
     return 0;
+}
+
+static
+void user_poll_clear (user_poll_t *upoll)
+{
+    if (upoll->cb != NULL) {
+        pollcb_disable(upoll->cb);
+        pollcb_del(upoll->cb);
+    }
+    if (upoll->allfd != -1) close(upoll->allfd);
 }

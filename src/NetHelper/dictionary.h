@@ -5,37 +5,21 @@
  *  This is free software; see lgpl-2.1.txt
  */
 
-/*
-
-   This module provides an independent interface for a generic dictionary.
-
-   The dictionary maps (pointers to) objects of type `struct sockaddr`
-   into integers (file descriptors).
-
-   Behind the interface it may be implemented with either a local
-   algorithm or an external library (the point here is avoiding
-   dependencies).
-
- */
-
 #ifndef DICTIONARY_H
 #define DICTIONARY_H
 
-#include <stdint.h>
-#include <stddef.h>
-#include <arpa/inet.h>
-
+#include <netinet/in.h>
 #include "config.h"
+#include "sockaddr-helpers.h"
+#include "client.h"
 
 typedef struct dict * dict_t;
 
-typedef struct {
-    int fd;
-    struct {
-        unsigned used : 1;
-    } flags;
-} peer_info_t;
+/* Return 1 to continue, 0 to stop scanning */
+typedef int (* dict_foreach_t) (void *ctx, const sockaddr_t * addr,
+                                client_t cl);
 
+<<<<<<< HEAD
 <<<<<<< work
 /** Constructor for the dictionary.
  *
@@ -54,33 +38,17 @@ typedef struct {
  * @return The newly allocated dictionary.
  */
 dict_t dict_new (int af, int autoclose, struct tag *cfg);
+=======
+/* Destructor must support NULL as input value */
+dict_t dict_new (struct tag *);
+>>>>>>> 032b4dc85bcc84143b81cc44170867d424eab1a7
 
-/** Destructor for the dictionary.
- *
- * @param[in] D The dictionary to be destroyed.
- */
-void dict_delete (dict_t D);
+/* Returns the inner pointer to client instance */
+client_t dict_search (dict_t, const sockaddr_t *);
 
-/** Number of stored items
- *
- * @param[in] D The dictionary.
- *
- * @return the number of stored items.
- */
-size_t dict_size (dict_t D);
+void dict_foreach (dict_t, dict_foreach_t cb, void * ctx);
 
-/** Lookup function.
- *
- * @param[in] D The dictionary;
- * @param[in] addr The address to search;
- * @param[out] fd The file descriptor (valid only if 0 is returned);
- *
- * @retval 0 on success;
- * @retval -1 on failure.
- */
-int dict_lookup (dict_t D, const struct sockaddr * addr,
-                 peer_info_t *info);
-
+<<<<<<< HEAD
 /** Lookup function.
  *
  * @param[in] D The dictionary;
@@ -244,6 +212,9 @@ int * dict_data_fd (dict_data_t);
  */
 void ** dict_data_user (dict_data_t);
 >>>>>>> local
+=======
+void dict_del (dict_t);
+>>>>>>> 032b4dc85bcc84143b81cc44170867d424eab1a7
 
 #endif // DICTIONARY_H
 

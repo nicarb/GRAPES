@@ -5,6 +5,7 @@
 
 typedef struct tout * tout_t;
 
+<<<<<<< HEAD
 /** Initializes a new structure for the timeout
  *
  * @param[in] timeout is the value of the time till expires
@@ -72,6 +73,20 @@ unsigned tout_timeval_to_ms (const struct timeval *tval);
  *
  * @see 
  */
+=======
+tout_t tout_new (const struct timeval *timeout); 
+
+tout_t tout_copy (const tout_t t); 
+
+void tout_reset (tout_t t);
+
+int tout_expired (tout_t t);
+
+void tout_del (tout_t t);
+
+unsigned tout_timeval_to_ms (const struct timeval *tval);
+
+>>>>>>> 032b4dc85bcc84143b81cc44170867d424eab1a7
 unsigned tout_now_ms ();
 
 #endif // TIMEOUT_H
